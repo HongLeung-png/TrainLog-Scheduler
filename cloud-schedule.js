@@ -4,7 +4,7 @@
   const SUPABASE_URL = 'https://znszkaeiaarjjlhkbxrg.supabase.co';
 
   // 把下面内容替换成你自己的完整 Publishable Key
-  const SUPABASE_KEY = 'sb_publishable_这里换成你的完整KEY';
+  const SUPABASE_KEY = 'sb_publishable_kQLEoB0049qm_SmxbXpvZg_1u2o5FVv';
 
 
   const cleanUrl = v =>
