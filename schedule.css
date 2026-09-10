@@ -5,3 +5,17 @@
 .slot.occupied-continuation .slot-body{padding-top:0}
 .course.continuation{min-height:44px;margin-top:-1px;border-top:0;border-radius:3px 3px 12px 12px;background:#f7f9fc;color:#6b7280}
 .course.continuation small{margin-top:0}
+
+
+/* v2.4.4: courses spanning multiple half-hours merge into one colored block */
+.timeline-grid{display:grid;grid-template-columns:76px 1fr;grid-auto-rows:58px;position:relative;overflow:visible}
+.timeline-grid .grid-time{z-index:1;border-right:1px solid #e5e7eb;border-bottom:1px solid #e5e7eb;background:#fff}
+.timeline-grid .slot-bg{border-bottom:1px solid #e5e7eb;background:#fff;z-index:0}
+.timeline-grid .slot-bg.occupied{background:#f8fafc}
+.timeline-grid .slot-add{z-index:1;margin:6px;border-radius:10px;min-height:0;height:auto}
+.timeline-grid .merged-course{z-index:3;margin:4px 6px;border-radius:12px;align-self:stretch;min-height:0;box-shadow:0 2px 8px #00000012;border-width:1px}
+.timeline-grid .merged-course.event-fixed{background:#eef2ff;border-color:#c7d2fe;color:#312e81}
+.timeline-grid .merged-course.event-temp{background:#fff7ed;border-color:#fed7aa;color:#9a3412}
+.timeline-grid .merged-course.event-trial{background:#ecfdf5;border-color:#a7f3d0;color:#065f46}
+.timeline-grid .merged-course .tag{background:#ffffffaa;color:inherit;border:1px solid currentColor}
+@media(max-width:650px){.timeline-grid{grid-template-columns:58px 1fr}.timeline-grid .merged-course{margin:4px}.timeline-grid .slot-add{margin:6px 4px}}
