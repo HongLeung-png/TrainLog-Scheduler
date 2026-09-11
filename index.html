@@ -4,7 +4,7 @@
 <label>约课类型<select id="appointmentType"><option value="regular">常规约课</option><option value="trial">首次体验</option></select></label>
 <div id="scheduleKindField"><label>排课方式<select id="kind"><option value="fixed">固定课 · 每周重复</option><option value="temporary">临时约课 · 仅此日期</option></select></label></div>
 <div id="regularStudentFields"><label>筛选会员<input id="studentSearch" placeholder="输入姓名快速筛选"></label><label>会员<select id="studentName"></select></label></div>
-<div id="trialStudentField"><label>体验学员姓名<input id="trialName" placeholder="直接输入姓名，无需先创建会员"></label><small>首次体验按单次课程处理。</small></div>
+<div id="trialStudentField"><label>体验学员姓名<input id="trialName" placeholder="直接输入姓名，无需先创建会员"></label><label>年龄<input id="trialAge" type="number" min="0" max="120" placeholder="如：10"></label><small>首次体验按单次课程处理；年龄会同步到 App 体验学员档案。</small></div>
 <div id="fixedField"><label>固定星期<select id="weekday"></select></label></div>
 <div id="tempField"><label>约课日期<input id="courseDate" type="date"></label></div>
 <div class="two"><label>开始时间<input id="startTime" type="time" required value="16:00"></label><label>结束时间<input id="endTime" type="time" required value="17:00"></label></div>
@@ -12,4 +12,5 @@
 <label>备注<input id="notes" placeholder="接送 / 团课 / 调课原因等"></label>
 <div class="dialog-actions"><button type="button" id="deleteBtn" class="danger hidden">删除</button><span class="spacer"></span><button type="button" class="secondary" id="cancelCourse">取消</button><button type="submit" id="saveCourseBtn">保存</button></div></form></dialog>
 <dialog id="memberDialog"><form method="dialog" id="memberForm"><h2 id="memberTitle">创建会员</h2><input type="hidden" id="memberId"><label>会员编号<input id="memberCode" value="保存后自动生成6位编号" readonly></label><label>姓名<input id="memberName" placeholder="姓名与英文名/小名至少填一项"></label><label>英文名/小名<input id="memberAlias" placeholder="如：Eason / 乐乐"></label><div class="two"><label>性别<select id="memberSex"><option value="">未填写</option><option>男</option><option>女</option></select></label><label>年龄<input id="memberAge" type="number" min="0" max="120" placeholder="输入年龄"></label></div><label>出生日期<input id="memberBirth" type="date"></label><label>训练目标<input id="memberGoal" placeholder="减脂 / 增高 / 体态 / 专项"></label><label>联系方式<input id="memberContact"></label><label>备注<input id="memberNotes"></label><div class="dialog-actions"><button type="button" id="deleteMemberBtn" class="danger hidden">删除会员</button><span class="spacer"></span><button type="button" class="secondary" id="cancelMember">取消</button><button type="submit">保存会员</button></div></form></dialog>
+<dialog id="contentDialog"><div class="readonly-dialog"><h2 id="contentTitle">课程内容</h2><div id="contentBody"></div><div class="dialog-actions"><span class="spacer"></span><button type="button" class="secondary" id="closeContent">关闭</button></div></div></dialog>
 <script src="cloud-schedule.js"></script><script src="schedule.js"></script></body></html>

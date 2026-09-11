@@ -4,7 +4,7 @@ const WEEK=[
 ];
 const $=id=>document.getElementById(id);
 const MEMBER_PAGE_SIZE=10;
-let schedules=[],members=[],exceptions=[],selected=today();
+let schedules=[],members=[],exceptions=[],locks=[],contents=[],selected=today();
 let memberPage=1,memberSearchQuery='',courseSaving=false,memberSaving=false;
 
 function today(){return dateStr(new Date())}
@@ -44,6 +44,13 @@ function slots(){const a=[];for(let m=540;m<1260;m+=30)a.push(mt(m));return a}
 function slotRows(date,slot){const a=tm(slot),b=a+30;return rows(date).filter(x=>tm(x.startTime)<b&&tm(x.endTime)>a)}
 function isTrial(x){return x?.type==='首次体验'}
 function intervalsOverlap(a,b){return tm(a.startTime)<tm(b.endTime)&&tm(a.endTime)>tm(b.startTime)}
+
+function contentFor(scheduleId,date){return contents.find(x=>String(x.scheduleId)===String(scheduleId)&&x.date===date)||null}
+function locksForDate(date){return locks.filter(x=>x.date===date).sort((a,b)=>a.startTime.localeCompare(b.startTime))}
+function findLockConflict(candidate,sourceLocks=locks){return (sourceLocks||[]).find(lock=>{if(!intervalsOverlap(candidate,lock))return false;if(kind(candidate)==='temporary')return candidate.date===lock.date;return lock.date>=today()&&wd(lock.date)===Number(candidate.day)})||null}
+function lockConflictMessage(lock){return `该时间段已锁定：${lock.date} ${lock.startTime}–${lock.endTime}${lock.notes?` · ${lock.notes}`:''}`}
+function readonlyContentHtml(detail){if(!detail||(!(detail.tests||[]).length&&!(detail.training||[]).length))return '<div class="empty small">该课程还没有安排测试或训练。</div>';return `<div class="readonly-content">${detail.tests?.length?`<h3>测试内容</h3><table class="content-table"><tbody>${detail.tests.map(x=>`<tr><td>${esc(x.category||'')}</td><td>${esc(x.subgroup||'')}</td><td>${esc(x.testName||'')}</td></tr>`).join('')}</tbody></table>`:''}${detail.training?.length?`<h3>训练内容</h3><table class="content-table"><tbody>${detail.training.map(x=>`<tr><td>${esc(x.category||'')}</td><td>${esc(x.name||'')}</td><td>${esc(x.sets||'')}组 × ${esc(x.reps||'')}</td><td>${esc(x.load||'')}</td></tr>`).join('')}</tbody></table>${detail.trainingNotes?`<p class="content-notes">${esc(detail.trainingNotes)}</p>`:''}`:''}</div>`}
+function openContent(x,date){const detail=contentFor(x.id,date);$('contentTitle').textContent=`${scheduleDisplayName(x)} · ${date}`;$('contentBody').innerHTML=readonlyContentHtml(detail);$('contentDialog').showModal()}
 
 function memberDisplayName(m){
   const name=String(m?.name||'').trim();
@@ -148,59 +155,38 @@ function eventPlacement(x){
   return{rowStart,span:Math.max(1,rowEnd-rowStart)};
 }
 function timeline(date){
-  const dayRows=rows(date),ss=slots();
+  const dayRows=rows(date),dayLocks=locksForDate(date),ss=slots();
   let html='<div class="timeline timeline-grid">';
   ss.forEach((s,i)=>{
-    const occupied=slotRows(date,s).length>0;
-    html+=`<div class="slot-time grid-time" style="grid-row:${i+1};grid-column:1">${s}</div>
-      <div class="slot-bg ${occupied?'occupied':''}" style="grid-row:${i+1};grid-column:2"></div>`;
+    const a=tm(s),b=a+30,eventOccupied=slotRows(date,s).length>0,lockOccupied=dayLocks.some(x=>tm(x.startTime)<b&&tm(x.endTime)>a),occupied=eventOccupied||lockOccupied;
+    html+=`<div class="slot-time grid-time" style="grid-row:${i+1};grid-column:1">${s}</div><div class="slot-bg ${occupied?'occupied':''} ${lockOccupied?'locked-bg':''}" style="grid-row:${i+1};grid-column:2"></div>`;
     if(!occupied)html+=`<button class="slot-add" data-time="${s}" style="grid-row:${i+1};grid-column:2">＋ 点击约课</button>`;
   });
+  dayLocks.forEach(x=>{const p=eventPlacement(x);html+=`<div class="web-lock-card" style="grid-row:${p.rowStart} / span ${p.span};grid-column:2"><strong>🔒 已锁定 ${esc(x.startTime)}–${esc(x.endTime)}</strong><small>${esc(x.notes||'该时段不可约')}</small></div>`});
   dayRows.forEach(x=>{const p=eventPlacement(x);html+=card(x,p.rowStart,p.span)});
-  html+='</div><div class="timeline-end"><span>21:00</span></div>';
-  return html;
+  html+='</div><div class="timeline-end"><span>21:00</span></div>';return html;
 }
+
 function card(x,rowStart=1,span=1){
-  const leave=x.attendanceStatus==='leave';
+  const leave=x.attendanceStatus==='leave',detail=contentFor(x.id,x.occurrenceDate),hasContent=!!(detail?.tests?.length||detail?.training?.length);
   const label=leave?'已请假':(isTrial(x)?'首次体验':(kind(x)==='temporary'?'临时约课':'固定课'));
   return `<div class="course merged-course ${eventClass(x)}" style="grid-row:${rowStart} / span ${span};grid-column:2" data-id="${x.id}">
-    <div class="course-main">
-      <strong>${x.startTime}–${x.endTime} · ${esc(scheduleDisplayName(x))}</strong>
-      <small>${esc(x.type||'综合')}${x.notes?` · ${esc(x.notes)}`:''}</small>
-    </div>
-    <div class="course-side">
-      <span class="tag">${label}</span>
-      <div class="course-actions">
-        <button type="button" class="course-leave tiny" data-id="${x.id}" data-date="${x.occurrenceDate}">${leave?'恢复':'请假'}</button>
-        <button type="button" class="course-cancel tiny cancel" data-id="${x.id}" data-date="${x.occurrenceDate}">取消</button>
-      </div>
-    </div>
+    <div class="course-main"><strong>${x.startTime}–${x.endTime} · ${esc(scheduleDisplayName(x))}</strong><small>${esc(x.type||'综合')}${x.trialAge?` · ${esc(x.trialAge)}岁`:''}${x.notes?` · ${esc(x.notes)}`:''}${hasContent?' · 已安排内容':''}</small></div>
+    <div class="course-side"><span class="tag">${label}</span><div class="course-actions">
+      <button type="button" class="course-content tiny" data-id="${x.id}" data-date="${x.occurrenceDate}">内容</button>
+      <button type="button" class="course-edit tiny" data-id="${x.id}">编辑</button>
+      <button type="button" class="course-leave tiny" data-id="${x.id}" data-date="${x.occurrenceDate}">${leave?'恢复':'请假'}</button>
+      <button type="button" class="course-cancel tiny cancel" data-id="${x.id}" data-date="${x.occurrenceDate}">取消</button>
+    </div></div>
   </div>`;
 }
+
 function bindCourseCards(){
-  document.querySelectorAll('.course').forEach(b=>b.onclick=e=>{
-    if(e.target.closest('.course-actions'))return;
-    openCourse(schedules.find(x=>x.id===b.dataset.id));
-  });
-  document.querySelectorAll('.course-leave').forEach(b=>b.onclick=async e=>{
-    e.stopPropagation();
-    const id=b.dataset.id,date=b.dataset.date,ex=exceptionFor(id,date);
-    try{
-      if(ex?.status==='leave')await TrainLogCloud.deleteScheduleException(id,date);
-      else await TrainLogCloud.setScheduleException(id,date,'leave');
-      await load();
-    }catch(err){alert('请假操作失败：'+err.message)}
-  });
-  document.querySelectorAll('.course-cancel').forEach(b=>b.onclick=async e=>{
-    e.stopPropagation();
-    const id=b.dataset.id,date=b.dataset.date,x=schedules.find(s=>String(s.id)===String(id));
-    if(!x)return;
-    try{
-      if(kind(x)==='fixed')await TrainLogCloud.setScheduleException(id,date,'cancelled');
-      else await TrainLogCloud.deleteSchedule(id);
-      await load();
-    }catch(err){alert('取消课程失败：'+err.message)}
-  });
+  document.querySelectorAll('.course').forEach(b=>b.onclick=e=>{if(e.target.closest('.course-actions'))return;const x=schedules.find(x=>x.id===b.dataset.id);if(x)openContent({...x,occurrenceDate:selected},selected)});
+  document.querySelectorAll('.course-content').forEach(b=>b.onclick=e=>{e.stopPropagation();const x=schedules.find(s=>String(s.id)===String(b.dataset.id));if(x)openContent(x,b.dataset.date)});
+  document.querySelectorAll('.course-edit').forEach(b=>b.onclick=e=>{e.stopPropagation();const x=schedules.find(s=>String(s.id)===String(b.dataset.id));if(x)openCourse(x)});
+  document.querySelectorAll('.course-leave').forEach(b=>b.onclick=async e=>{e.stopPropagation();const id=b.dataset.id,date=b.dataset.date,ex=exceptionFor(id,date);try{if(ex?.status==='leave')await TrainLogCloud.deleteScheduleException(id,date);else await TrainLogCloud.setScheduleException(id,date,'leave');await load()}catch(err){alert('请假操作失败：'+err.message)}});
+  document.querySelectorAll('.course-cancel').forEach(b=>b.onclick=async e=>{e.stopPropagation();const id=b.dataset.id,date=b.dataset.date,x=schedules.find(s=>String(s.id)===String(id));if(!x)return;try{if(kind(x)==='fixed')await TrainLogCloud.setScheduleException(id,date,'cancelled');else await TrainLogCloud.deleteSchedule(id);await load()}catch(err){alert('取消课程失败：'+err.message)}});
 }
 
 function filteredMembers(){
@@ -263,6 +249,7 @@ function openCourse(x=null,preset=''){
   $('studentSearch').value='';
   fillMembers('',trial?(members[0]?.id||''):(x?.memberId||x?.studentName||members[0]?.id||''));
   $('trialName').value=trial?x.studentName:'';
+  $('trialAge').value=trial?(x.trialAge||''):'';
   $('weekday').value=x?.day||wd(selected);
   $('courseDate').value=x?.date||selected;
   $('startTime').value=x?.startTime||preset||'16:00';
@@ -290,10 +277,12 @@ function openMember(x=null){
 }
 async function load(){
   try{
-    [schedules,members,exceptions]=await Promise.all([
+    [schedules,members,exceptions,locks,contents]=await Promise.all([
       TrainLogCloud.listSchedules(),
       TrainLogCloud.listMembers(),
-      TrainLogCloud.listExceptions?TrainLogCloud.listExceptions():Promise.resolve([])
+      TrainLogCloud.listExceptions?TrainLogCloud.listExceptions():Promise.resolve([]),
+      TrainLogCloud.listLocks?TrainLogCloud.listLocks():Promise.resolve([]),
+      TrainLogCloud.listScheduleContents?TrainLogCloud.listScheduleContents():Promise.resolve([])
     ]);
     render();
   }catch(e){
@@ -309,6 +298,7 @@ $('addBtn').onclick=()=>openCourse();
 $('memberBtn').onclick=()=>openMember();
 $('cancelCourse').onclick=()=>$('courseDialog').close();
 $('cancelMember').onclick=()=>$('memberDialog').close();
+$('closeContent').onclick=()=>$('contentDialog').close();
 $('weekday').innerHTML=WEEK.map(x=>`<option value="${x.v}">${x.s}</option>`).join('');
 $('memberAge').oninput=()=>{const b=birthFromAge($('memberAge').value);if(b)$('memberBirth').value=b};
 $('memberBirth').onchange=()=>{$('memberAge').value=ageFromBirth($('memberBirth').value)||''};
@@ -328,6 +318,7 @@ $('courseForm').onsubmit=async e=>{
     date:k==='temporary'?$('courseDate').value:'',
     startTime:$('startTime').value,endTime:$('endTime').value,
     type:trial?'首次体验':$('courseType').value,
+    trialAge:trial?$('trialAge').value:'',
     notes:$('notes').value.trim()
   };
   if(!x.studentName)return alert(trial?'请输入体验学员姓名':'请选择会员');
@@ -336,18 +327,23 @@ $('courseForm').onsubmit=async e=>{
   const id=$('courseId').value;
   const localConflict=findConflict(x,id);
   if(localConflict)return alert(conflictMessage(localConflict));
+  const localLock=findLockConflict(x);
+  if(localLock)return alert(lockConflictMessage(localLock));
 
   courseSaving=true;
   const saveBtn=$('saveCourseBtn')||$('courseForm').querySelector('button[type="submit"]');
   if(saveBtn){saveBtn.disabled=true;saveBtn.textContent='保存中…'}
   try{
-    const [freshSchedules,freshExceptions]=await Promise.all([
+    const [freshSchedules,freshExceptions,freshLocks]=await Promise.all([
       TrainLogCloud.listSchedules(),
-      TrainLogCloud.listExceptions?TrainLogCloud.listExceptions():Promise.resolve([])
+      TrainLogCloud.listExceptions?TrainLogCloud.listExceptions():Promise.resolve([]),
+      TrainLogCloud.listLocks?TrainLogCloud.listLocks():Promise.resolve([])
     ]);
-    schedules=freshSchedules;exceptions=freshExceptions;
+    schedules=freshSchedules;exceptions=freshExceptions;locks=freshLocks;
     const freshConflict=findConflict(x,id,freshSchedules,freshExceptions);
     if(freshConflict)throw new Error(conflictMessage(freshConflict));
+    const freshLock=findLockConflict(x,freshLocks);
+    if(freshLock)throw new Error(lockConflictMessage(freshLock));
     if(id)await TrainLogCloud.updateSchedule(id,x);
     else await TrainLogCloud.createSchedule(x);
     $('courseDialog').close();

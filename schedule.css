@@ -39,3 +39,10 @@ button:disabled{opacity:.55;cursor:default;pointer-events:none}
   .course-actions{flex:1 1 128px;justify-content:flex-start;flex-wrap:wrap}
   .course-actions .tiny{flex:0 0 auto}
 }
+
+/* v2.5.3: App-only locks are respected by web; course plan is read-only */
+.timeline-grid .slot-bg.locked-bg{background:#e5e7eb}
+.web-lock-card{z-index:4;margin:4px 6px;border:1px solid #9ca3af;border-radius:12px;background:#d1d5db;color:#374151;padding:10px 12px;display:flex;flex-direction:column;justify-content:center;gap:4px;box-shadow:0 2px 8px #00000010}
+.web-lock-card small{color:#6b7280}
+.readonly-dialog{padding:22px}.readonly-dialog h2{margin-top:0}.readonly-content h3{margin:16px 0 8px}.content-table{width:100%;border-collapse:collapse}.content-table td{border-bottom:1px solid #e5e7eb;padding:9px 6px;vertical-align:top}.content-notes{display:block;margin-top:10px;line-height:1.5}
+@media(max-width:650px){.web-lock-card{margin:4px}.content-table{font-size:12px}.course-actions .course-content,.course-actions .course-edit{flex:0 0 auto}}
