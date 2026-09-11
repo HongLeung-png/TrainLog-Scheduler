@@ -33,9 +33,9 @@
   async function deleteMember(id){await rest(`trainlog_members?id=eq.${encodeURIComponent(id)}`,{method:'DELETE',headers:{Prefer:'return=minimal'}});return true;}
   async function deleteMemberByCode(code){await rest(`trainlog_members?member_code=eq.${encodeURIComponent(code)}`,{method:'DELETE',headers:{Prefer:'return=minimal'}});return true;}
 
-  const mapLock=r=>({id:r.id,date:r.lock_date||'',startTime:String(r.start_time||'').slice(0,5),endTime:String(r.end_time||'').slice(0,5),notes:r.notes||'',createdAt:r.created_at||'',updatedAt:r.updated_at||''});
-  async function listLocks(){const rows=await rest('trainlog_schedule_locks?select=id,lock_date,start_time,end_time,notes,created_at,updated_at&order=lock_date.asc,start_time.asc');return (rows||[]).map(mapLock);}
-  async function createLock(x){const rows=await rest('trainlog_schedule_locks?select=*',{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify({lock_date:x.date,start_time:x.startTime,end_time:x.endTime,notes:x.notes||'',updated_at:new Date().toISOString()})});return mapLock(rows[0]);}
+  const mapLock=r=>({id:r.id,date:r.lock_date||'',startTime:String(r.start_time||'').slice(0,5),endTime:String(r.end_time||'').slice(0,5),repeatWeekly:!!r.repeat_weekly,notes:r.notes||'',createdAt:r.created_at||'',updatedAt:r.updated_at||''});
+  async function listLocks(){const rows=await rest('trainlog_schedule_locks?select=id,lock_date,start_time,end_time,repeat_weekly,notes,created_at,updated_at&order=lock_date.asc,start_time.asc');return (rows||[]).map(mapLock);}
+  async function createLock(x){const rows=await rest('trainlog_schedule_locks?select=*',{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify({lock_date:x.date,start_time:x.startTime,end_time:x.endTime,repeat_weekly:!!x.repeatWeekly,notes:x.notes||'',updated_at:new Date().toISOString()})});return mapLock(rows[0]);}
   async function deleteLock(id){await rest(`trainlog_schedule_locks?id=eq.${encodeURIComponent(id)}`,{method:'DELETE',headers:{Prefer:'return=minimal'}});return true;}
 
   const mapContent=r=>({id:r.id,scheduleId:r.schedule_id,date:r.occurrence_date||'',tests:Array.isArray(r.tests)?r.tests:[],training:Array.isArray(r.training)?r.training:[],trainingNotes:r.training_notes||'',createdAt:r.created_at||'',updatedAt:r.updated_at||''});

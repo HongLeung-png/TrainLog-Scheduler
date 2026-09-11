@@ -46,9 +46,10 @@ function isTrial(x){return x?.type==='首次体验'}
 function intervalsOverlap(a,b){return tm(a.startTime)<tm(b.endTime)&&tm(a.endTime)>tm(b.startTime)}
 
 function contentFor(scheduleId,date){return contents.find(x=>String(x.scheduleId)===String(scheduleId)&&x.date===date)||null}
-function locksForDate(date){return locks.filter(x=>x.date===date).sort((a,b)=>a.startTime.localeCompare(b.startTime))}
-function findLockConflict(candidate,sourceLocks=locks){return (sourceLocks||[]).find(lock=>{if(!intervalsOverlap(candidate,lock))return false;if(kind(candidate)==='temporary')return candidate.date===lock.date;return lock.date>=today()&&wd(lock.date)===Number(candidate.day)})||null}
-function lockConflictMessage(lock){return `该时间段已锁定：${lock.date} ${lock.startTime}–${lock.endTime}${lock.notes?` · ${lock.notes}`:''}`}
+function lockAppliesToDate(lock,date){return lock?.repeatWeekly?(!!lock.date&&lock.date<=date&&wd(lock.date)===wd(date)):lock?.date===date}
+function locksForDate(date){return locks.filter(x=>lockAppliesToDate(x,date)).sort((a,b)=>a.startTime.localeCompare(b.startTime))}
+function findLockConflict(candidate,sourceLocks=locks){return (sourceLocks||[]).find(lock=>{if(!intervalsOverlap(candidate,lock))return false;if(kind(candidate)==='temporary')return lockAppliesToDate(lock,candidate.date);if(lock.repeatWeekly)return wd(lock.date)===Number(candidate.day);return lock.date>=today()&&wd(lock.date)===Number(candidate.day)})||null}
+function lockConflictMessage(lock){return `该时间段已锁定：${lock.repeatWeekly?'每周 '+WEEK.find(x=>x.v===wd(lock.date))?.s:lock.date} ${lock.startTime}–${lock.endTime}${lock.notes?` · ${lock.notes}`:''}`}
 function readonlyContentHtml(detail){if(!detail||(!(detail.tests||[]).length&&!(detail.training||[]).length))return '<div class="empty small">该课程还没有安排测试或训练。</div>';return `<div class="readonly-content">${detail.tests?.length?`<h3>测试内容</h3><table class="content-table"><tbody>${detail.tests.map(x=>`<tr><td>${esc(x.category||'')}</td><td>${esc(x.subgroup||'')}</td><td>${esc(x.testName||'')}</td></tr>`).join('')}</tbody></table>`:''}${detail.training?.length?`<h3>训练内容</h3><table class="content-table"><tbody>${detail.training.map(x=>`<tr><td>${esc(x.category||'')}</td><td>${esc(x.name||'')}</td><td>${esc(x.sets||'')}组 × ${esc(x.reps||'')}</td><td>${esc(x.load||'')}</td></tr>`).join('')}</tbody></table>${detail.trainingNotes?`<p class="content-notes">${esc(detail.trainingNotes)}</p>`:''}`:''}</div>`}
 function openContent(x,date){const detail=contentFor(x.id,date);$('contentTitle').textContent=`${scheduleDisplayName(x)} · ${date}`;$('contentBody').innerHTML=readonlyContentHtml(detail);$('contentDialog').showModal()}
 
@@ -162,7 +163,7 @@ function timeline(date){
     html+=`<div class="slot-time grid-time" style="grid-row:${i+1};grid-column:1">${s}</div><div class="slot-bg ${occupied?'occupied':''} ${lockOccupied?'locked-bg':''}" style="grid-row:${i+1};grid-column:2"></div>`;
     if(!occupied)html+=`<button class="slot-add" data-time="${s}" style="grid-row:${i+1};grid-column:2">＋ 点击约课</button>`;
   });
-  dayLocks.forEach(x=>{const p=eventPlacement(x);html+=`<div class="web-lock-card" style="grid-row:${p.rowStart} / span ${p.span};grid-column:2"><strong>🔒 已锁定 ${esc(x.startTime)}–${esc(x.endTime)}</strong><small>${esc(x.notes||'该时段不可约')}</small></div>`});
+  dayLocks.forEach(x=>{const p=eventPlacement(x);html+=`<div class="web-lock-card" style="grid-row:${p.rowStart} / span ${p.span};grid-column:2"><strong>🔒 已锁定 ${esc(x.startTime)}–${esc(x.endTime)}</strong><small>${x.repeatWeekly?'每周固定 · ':''}${esc(x.notes||'该时段不可约')}</small></div>`});
   dayRows.forEach(x=>{const p=eventPlacement(x);html+=card(x,p.rowStart,p.span)});
   html+='</div><div class="timeline-end"><span>21:00</span></div>';return html;
 }
