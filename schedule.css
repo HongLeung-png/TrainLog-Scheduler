@@ -19,3 +19,8 @@
 .timeline-grid .merged-course.event-trial{background:#ecfdf5;border-color:#a7f3d0;color:#065f46}
 .timeline-grid .merged-course .tag{background:#ffffffaa;color:inherit;border:1px solid currentColor}
 @media(max-width:650px){.timeline-grid{grid-template-columns:58px 1fr}.timeline-grid .merged-course{margin:4px}.timeline-grid .slot-add{margin:6px 4px}}
+
+/* v2.4.5: leave/cancel controls and leave state */
+.timeline-grid .merged-course.event-leave{background:#f3f4f6;border-color:#9ca3af;color:#4b5563}
+.course-main{min-width:0;flex:1}.course-side{display:flex;align-items:flex-end;gap:8px;flex-direction:column}.course-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}.course-actions .tiny{padding:5px 8px;border-radius:8px;font-size:11px;background:#fff;color:#374151;border:1px solid #d1d5db}.course-actions .tiny.cancel{color:#b91c1c;border-color:#fecaca;background:#fff7f7}
+@media(max-width:650px){.course-side{width:100%;align-items:flex-start}.course-actions{justify-content:flex-start}}
