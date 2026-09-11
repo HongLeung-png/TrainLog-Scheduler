@@ -51,7 +51,7 @@ function memberDisplayName(m){
   return name&&alias?`${name}-${alias}`:(name||alias||'未命名会员');
 }
 function memberSearchText(m){
-  return `${m?.name||''} ${m?.alias||''} ${m?.goal||''} ${m?.contact||''}`.toLowerCase();
+  return `${m?.memberCode||''} ${m?.name||''} ${m?.alias||''} ${m?.goal||''} ${m?.contact||''}`.toLowerCase();
 }
 function scheduleDisplayName(x){
   const raw=String(x?.studentName||'').trim();
@@ -205,7 +205,7 @@ function filteredMembers(){
 function memberList(arr){
   return arr.length?arr.map(m=>`<button class="member-edit" data-id="${m.id}">
     <strong>${esc(memberDisplayName(m))}</strong>
-    <small>${esc(m.goal||'未填写目标')}${m.contact?` · ${esc(m.contact)}`:''}</small>
+    <small>编号 ${esc(m.memberCode||'—')} · ${esc(m.goal||'未填写目标')}${m.contact?` · ${esc(m.contact)}`:''}</small>
   </button>`).join(''):'<div class="empty small">没有匹配会员。</div>';
 }
 function renderMemberPanel(){
@@ -232,7 +232,7 @@ function fillMembers(q='',selectedRef=''){
   const options=a.map(m=>{
     const value=String(m.name||m.alias||'').trim();
     const selected=m.id===current||value===current||memberDisplayName(m)===current;
-    return `<option value="${esc(value)}" data-member-id="${esc(m.id)}" ${selected?'selected':''}>${esc(memberDisplayName(m))}</option>`;
+    return `<option value="${esc(value)}" data-member-id="${esc(m.id)}" ${selected?'selected':''}>${esc(m.memberCode||'——')} · ${esc(memberDisplayName(m))}</option>`;
   }).join('');
   const hasCurrent=a.some(m=>m.id===current||String(m.name||m.alias||'').trim()===current||memberDisplayName(m)===current);
   $('studentName').innerHTML=(current&&!hasCurrent?`<option value="${esc(current)}" selected>${esc(current)}</option>`:'')+options||'<option value="">暂无会员</option>';
@@ -271,6 +271,7 @@ function openCourse(x=null,preset=''){
 function openMember(x=null){
   $('memberTitle').textContent=x?'编辑会员':'创建会员';
   $('memberId').value=x?.id||'';
+  $('memberCode').value=x?.memberCode||'保存后自动生成6位编号';
   $('memberName').value=x?.name||'';
   $('memberAlias').value=x?.alias||'';
   $('memberSex').value=x?.sex||'';
@@ -368,20 +369,24 @@ $('memberForm').onsubmit=async e=>{
   e.preventDefault();
   if(memberSaving)return;
   const saveBtn=$('memberForm').querySelector('button[type="submit"]');
+  const currentId=$('memberId').value;
+  const existingMember=currentId?members.find(m=>String(m.id)===String(currentId)):null;
   const x={
+    syncKey:existingMember?.syncKey||`web:${window.crypto?.randomUUID?.()||Date.now()+'_'+Math.random().toString(36).slice(2)}`,
     name:$('memberName').value.trim(),
     alias:$('memberAlias').value.trim(),
     sex:$('memberSex').value,
     birth:$('memberBirth').value,
     goal:$('memberGoal').value.trim(),
     contact:$('memberContact').value.trim(),
-    notes:$('memberNotes').value.trim()
+    notes:$('memberNotes').value.trim(),
+    memberCode:existingMember?.memberCode||''
   };
   if(!x.name&&!x.alias)return alert('姓名或英文名/小名至少填写一项');
   memberSaving=true;
   if(saveBtn){saveBtn.disabled=true;saveBtn.textContent='保存中…'}
   try{
-    const id=$('memberId').value;
+    const id=currentId;
     if(id)await TrainLogCloud.updateMember(id,x);
     else await TrainLogCloud.createMember(x);
     $('memberDialog').close();
