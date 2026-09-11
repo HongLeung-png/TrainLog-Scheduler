@@ -5,7 +5,7 @@ const WEEK=[
 const $=id=>document.getElementById(id);
 const MEMBER_PAGE_SIZE=10;
 let schedules=[],members=[],exceptions=[],selected=today();
-let memberPage=1,memberSearchQuery='',courseSaving=false;
+let memberPage=1,memberSearchQuery='',courseSaving=false,memberSaving=false;
 
 function today(){return dateStr(new Date())}
 function ageFromBirth(birth){
@@ -55,11 +55,7 @@ function memberSearchText(m){
 }
 function scheduleDisplayName(x){
   const raw=String(x?.studentName||'').trim();
-  const found=members.find(m=>{
-    const base=String(m.name||'').trim();
-    const alias=String(m.alias||'').trim();
-    return raw===base||raw===alias||raw===memberDisplayName(m);
-  });
+  const found=members.find(m=>x?.memberId===m.id||(()=>{const base=String(m.name||'').trim();const alias=String(m.alias||'').trim();return raw===base||raw===alias||raw===memberDisplayName(m)})());
   return found?memberDisplayName(found):raw;
 }
 
@@ -229,18 +225,19 @@ function renderMemberPanel(){
   $('memberNext').onclick=()=>{if(memberPage<totalPages){memberPage++;renderMemberPanel()}};
 }
 
-function fillMembers(q='',selectedName=''){
+function fillMembers(q='',selectedRef=''){
   const needle=String(q||'').trim().toLowerCase();
   const a=members.filter(m=>!needle||memberSearchText(m).includes(needle));
+  const current=String(selectedRef||'').trim();
   const options=a.map(m=>{
     const value=String(m.name||m.alias||'').trim();
-    const selected=value===selectedName||memberDisplayName(m)===selectedName;
-    return `<option value="${esc(value)}" ${selected?'selected':''}>${esc(memberDisplayName(m))}</option>`;
+    const selected=m.id===current||value===current||memberDisplayName(m)===current;
+    return `<option value="${esc(value)}" data-member-id="${esc(m.id)}" ${selected?'selected':''}>${esc(memberDisplayName(m))}</option>`;
   }).join('');
-  const current=String(selectedName||'').trim();
-  const hasCurrent=a.some(m=>String(m.name||m.alias||'').trim()===current||memberDisplayName(m)===current);
+  const hasCurrent=a.some(m=>m.id===current||String(m.name||m.alias||'').trim()===current||memberDisplayName(m)===current);
   $('studentName').innerHTML=(current&&!hasCurrent?`<option value="${esc(current)}" selected>${esc(current)}</option>`:'')+options||'<option value="">暂无会员</option>';
 }
+
 function toggleFields(){
   const trial=$('appointmentType').value==='trial';
   if(trial)$('kind').value='temporary';
@@ -259,7 +256,7 @@ function openCourse(x=null,preset=''){
   $('appointmentType').value=trial?'trial':'regular';
   $('kind').value=trial?'temporary':kind(x||{});
   $('studentSearch').value='';
-  fillMembers('',trial?(members[0]?.name||members[0]?.alias||''):(x?.studentName||members[0]?.name||members[0]?.alias||''));
+  fillMembers('',trial?(members[0]?.id||''):(x?.memberId||x?.studentName||members[0]?.id||''));
   $('trialName').value=trial?x.studentName:'';
   $('weekday').value=x?.day||wd(selected);
   $('courseDate').value=x?.date||selected;
@@ -314,10 +311,13 @@ $('courseForm').onsubmit=async e=>{
   e.preventDefault();
   if(courseSaving)return;
   const trial=$('appointmentType').value==='trial';
-  const studentName=trial?$('trialName').value.trim():$('studentName').value;
+  const selectedOption=$('studentName')?.selectedOptions?.[0];
+  const memberId=trial?'':String(selectedOption?.dataset?.memberId||'');
+  const selectedMember=memberId?members.find(m=>m.id===memberId):null;
+  const studentName=trial?$('trialName').value.trim():(selectedMember?memberDisplayName(selectedMember):$('studentName').value);
   const k=trial?'temporary':$('kind').value;
   const x={
-    studentName,kind:k,
+    memberId,studentName,kind:k,
     day:k==='fixed'?Number($('weekday').value):null,
     date:k==='temporary'?$('courseDate').value:'',
     startTime:$('startTime').value,endTime:$('endTime').value,
@@ -366,6 +366,8 @@ $('deleteBtn').onclick=async()=>{
 
 $('memberForm').onsubmit=async e=>{
   e.preventDefault();
+  if(memberSaving)return;
+  const saveBtn=$('memberForm').querySelector('button[type="submit"]');
   const x={
     name:$('memberName').value.trim(),
     alias:$('memberAlias').value.trim(),
@@ -376,6 +378,8 @@ $('memberForm').onsubmit=async e=>{
     notes:$('memberNotes').value.trim()
   };
   if(!x.name&&!x.alias)return alert('姓名或英文名/小名至少填写一项');
+  memberSaving=true;
+  if(saveBtn){saveBtn.disabled=true;saveBtn.textContent='保存中…'}
   try{
     const id=$('memberId').value;
     if(id)await TrainLogCloud.updateMember(id,x);
@@ -383,11 +387,12 @@ $('memberForm').onsubmit=async e=>{
     $('memberDialog').close();
     await load();
   }catch(err){alert('会员保存失败：'+err.message)}
+  finally{memberSaving=false;if(saveBtn){saveBtn.disabled=false;saveBtn.textContent='保存会员'}}
 };
 
 $('deleteMemberBtn').onclick=async()=>{
   const id=$('memberId').value;
-  if(!id||!confirm('确定删除该会员？已排课程不会自动删除。'))return;
+  if(!id||!confirm('确定删除该会员？该会员对应的课表也会一起删除。'))return;
   try{
     await TrainLogCloud.deleteMember(id);
     $('memberDialog').close();
