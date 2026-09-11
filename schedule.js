@@ -91,9 +91,14 @@ function conflictMessage(x){
   return `该时间段已被「${scheduleDisplayName(x)}」${x.startTime}–${x.endTime} 占用，请选择其它时间。`;
 }
 
+function weeklyClassCount(days){
+  return days.reduce((sum,d)=>sum+rows(d.date).filter(x=>x.attendanceStatus!=='leave').length,0);
+}
+
 function render(){
   const days=week(selected);
-  $('status').textContent=`云端共享 · ${members.length} 位会员 · 打开网页即可排课`;
+  const weekClasses=weeklyClassCount(days);
+  $('status').textContent=`总会员 ${members.length} 位 · 本周课时 ${weekClasses} 节`;
   $('app').innerHTML=`
     <div class="weeknav">
       <button class="secondary" id="prev">‹ 上一周</button>
