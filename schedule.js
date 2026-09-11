@@ -2,6 +2,31 @@ const WEEK=[{v:1,s:'周一'},{v:2,s:'周二'},{v:3,s:'周三'},{v:4,s:'周四'},
 const $=id=>document.getElementById(id);let schedules=[],members=[],exceptions=[],selected=today();
 function today(){return dateStr(new Date())}function ageFromBirth(birth){if(!birth)return '';const b=parse(birth),n=new Date();let a=n.getFullYear()-b.getFullYear();const m=n.getMonth()-b.getMonth();if(m<0||(m===0&&n.getDate()<b.getDate()))a--;return a}function birthFromAge(age){const a=Number(age);return Number.isFinite(a)&&a>=0&&a<=120?`${new Date().getFullYear()-Math.floor(a)}-01-01`:''}function dateStr(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}function parse(s){const[a,b,c]=s.split('-').map(Number);return new Date(a,b-1,c,12)}function wd(s){const n=parse(s).getDay();return n||7}function shift(s,n){const d=parse(s);d.setDate(d.getDate()+n);return dateStr(d)}function week(s){const d=parse(s);d.setDate(d.getDate()-(wd(s)-1));return WEEK.map((w,i)=>{const x=new Date(d);x.setDate(d.getDate()+i);return{...w,date:dateStr(x),md:`${x.getMonth()+1}/${x.getDate()}`}})}function kind(x){return x.kind==='temporary'?'temporary':'fixed'}function exceptionFor(id,date){return exceptions.find(e=>String(e.scheduleId)===String(id)&&e.date===date)||null}function rows(date){return schedules.filter(x=>kind(x)==='fixed'?Number(x.day)===wd(date):x.date===date).map(x=>{const ex=exceptionFor(x.id,date);return {...x,occurrenceDate:date,attendanceStatus:ex?.status||''}}).filter(x=>x.attendanceStatus!=='cancelled').sort((a,b)=>a.startTime.localeCompare(b.startTime))}function esc(v){const d=document.createElement('div');d.textContent=v??'';return d.innerHTML}function tm(t){const[h,m]=String(t).split(':').map(Number);return(h||0)*60+(m||0)}function mt(n){return `${String(Math.floor(n/60)).padStart(2,'0')}:${String(n%60).padStart(2,'0')}`}function slots(){const a=[];for(let m=540;m<1260;m+=30)a.push(mt(m));return a}function slotRows(date,slot){const a=tm(slot),b=a+30;return rows(date).filter(x=>tm(x.startTime)<b&&tm(x.endTime)>a)}function slotStarts(date,slot){const a=tm(slot),b=a+30;return slotRows(date,slot).filter(x=>tm(x.startTime)>=a&&tm(x.startTime)<b)}function slotContinues(date,slot){const a=tm(slot);return slotRows(date,slot).filter(x=>tm(x.startTime)<a&&tm(x.endTime)>a)}function continuesPastSlot(x,slot){return tm(x.endTime)>tm(slot)+30}
 function isTrial(x){return x?.type==='首次体验'}
+function intervalsOverlap(a,b){return tm(a.startTime)<tm(b.endTime)&&tm(a.endTime)>tm(b.startTime)}
+function findConflict(candidate,ignoreId='',sourceSchedules=schedules,sourceExceptions=exceptions){
+  const ck=kind(candidate);
+  const exFor=(id,date)=>(sourceExceptions||[]).find(e=>String(e.scheduleId)===String(id)&&e.date===date)||null;
+  for(const other of sourceSchedules||[]){
+    if(ignoreId&&String(other.id)===String(ignoreId))continue;
+    if(!intervalsOverlap(candidate,other))continue;
+    const ok=kind(other);
+    if(ck==='fixed'&&ok==='fixed'){if(Number(candidate.day)===Number(other.day))return other;continue;}
+    if(ck==='temporary'&&ok==='temporary'){if(candidate.date&&candidate.date===other.date)return other;continue;}
+    if(ck==='temporary'&&ok==='fixed'){
+      if(!candidate.date||wd(candidate.date)!==Number(other.day))continue;
+      if(exFor(other.id,candidate.date)?.status==='cancelled')continue;
+      return other;
+    }
+    if(ck==='fixed'&&ok==='temporary'){
+      if(!other.date||wd(other.date)!==Number(candidate.day))continue;
+      if(other.date<today())continue;
+      return other;
+    }
+  }
+  return null;
+}
+function conflictMessage(x){return `该时间段已被「${x.studentName}」${x.startTime}–${x.endTime} 占用，请选择其它时间。`}
+let courseSaving=false;
 function render(){const days=week(selected);$('status').textContent=`云端共享 · ${members.length} 位会员 · 打开网页即可排课`;$('app').innerHTML=`<div class="weeknav"><button class="secondary" id="prev">‹ 上一周</button><div class="notice summary">${days[0].date} — ${days[6].date}</div><button class="secondary" id="now">本周</button><button class="secondary" id="next">下一周 ›</button></div><div class="weekdays">${days.map(d=>`<button class="day ${d.date===selected?'active':''}" data-date="${d.date}"><span>${d.s}</span><small>${d.md} · ${rows(d.date).length}节</small></button>`).join('')}</div>${timeline(selected)}<div class="members"><div class="members-head"><h2>会员</h2><input id="memberListSearch" placeholder="搜索会员"></div><div id="memberList">${memberList(members)}</div></div>`;$('prev').onclick=()=>{selected=shift(selected,-7);render()};$('next').onclick=()=>{selected=shift(selected,7);render()};$('now').onclick=()=>{selected=today();render()};document.querySelectorAll('.day').forEach(b=>b.onclick=()=>{selected=b.dataset.date;render()});document.querySelectorAll('.course').forEach(b=>b.onclick=e=>{if(e.target.closest('.course-actions'))return;openCourse(schedules.find(x=>x.id===b.dataset.id))});document.querySelectorAll('.course-leave').forEach(b=>b.onclick=async e=>{e.stopPropagation();const id=b.dataset.id,date=b.dataset.date,ex=exceptionFor(id,date);try{if(ex?.status==='leave')await TrainLogCloud.deleteScheduleException(id,date);else await TrainLogCloud.setScheduleException(id,date,'leave');await load()}catch(err){alert('请假操作失败：'+err.message)}});document.querySelectorAll('.course-cancel').forEach(b=>b.onclick=async e=>{e.stopPropagation();const id=b.dataset.id,date=b.dataset.date,x=schedules.find(s=>String(s.id)===String(id));if(!x)return;try{if(kind(x)==='fixed')await TrainLogCloud.setScheduleException(id,date,'cancelled');else await TrainLogCloud.deleteSchedule(id);await load()}catch(err){alert('取消课程失败：'+err.message)}});document.querySelectorAll('.slot-add').forEach(b=>b.onclick=()=>openCourse(null,b.dataset.time));document.querySelectorAll('.member-edit').forEach(b=>b.onclick=()=>openMember(members.find(x=>x.id===b.dataset.id)));$('memberListSearch').oninput=e=>{$('memberList').innerHTML=memberList(members.filter(m=>m.name.toLowerCase().includes(e.target.value.trim().toLowerCase())));document.querySelectorAll('.member-edit').forEach(b=>b.onclick=()=>openMember(members.find(x=>x.id===b.dataset.id)));};}
 function eventClass(x){if(x?.attendanceStatus==='leave')return 'event-leave';return isTrial(x)?'event-trial':(kind(x)==='temporary'?'event-temp':'event-fixed')}
 function eventPlacement(x){const start=Math.max(540,tm(x.startTime)),end=Math.min(1260,tm(x.endTime));const rowStart=Math.floor((start-540)/30)+1,rowEnd=Math.ceil((end-540)/30)+1;return{rowStart,span:Math.max(1,rowEnd-rowStart)}}
@@ -14,7 +39,38 @@ function openCourse(x=null,preset=''){$('courseTitle').textContent=x?'编辑课�
 function openMember(x=null){$('memberTitle').textContent=x?'编辑会员':'创建会员';$('memberId').value=x?.id||'';$('memberName').value=x?.name||'';$('memberSex').value=x?.sex||'';$('memberBirth').value=x?.birth||'';$('memberAge').value=ageFromBirth(x?.birth)||'';$('memberGoal').value=x?.goal||'';$('memberContact').value=x?.contact||'';$('memberNotes').value=x?.notes||'';$('deleteMemberBtn').classList.toggle('hidden',!x);$('memberDialog').showModal()}
 async function load(){try{[schedules,members,exceptions]=await Promise.all([TrainLogCloud.listSchedules(),TrainLogCloud.listMembers(),TrainLogCloud.listExceptions?TrainLogCloud.listExceptions():Promise.resolve([])]);render()}catch(e){$('status').textContent='同步失败：'+e.message;$('app').innerHTML='<div class="empty">无法连接共享课表</div>'}}
 $('appointmentType').onchange=toggleFields;$('kind').onchange=toggleFields;$('studentSearch').oninput=e=>fillMembers(e.target.value,$('studentName').value);$('addBtn').onclick=()=>openCourse();$('memberBtn').onclick=()=>openMember();$('cancelCourse').onclick=()=>$('courseDialog').close();$('cancelMember').onclick=()=>$('memberDialog').close();$('weekday').innerHTML=WEEK.map(x=>`<option value="${x.v}">${x.s}</option>`).join('');$('memberAge').oninput=()=>{const b=birthFromAge($('memberAge').value);if(b)$('memberBirth').value=b};$('memberBirth').onchange=()=>{$('memberAge').value=ageFromBirth($('memberBirth').value)||''};
-$('courseForm').onsubmit=async e=>{e.preventDefault();const trial=$('appointmentType').value==='trial';const studentName=trial?$('trialName').value.trim():$('studentName').value;const k=trial?'temporary':$('kind').value;const x={studentName,kind:k,day:k==='fixed'?Number($('weekday').value):null,date:k==='temporary'?$('courseDate').value:'',startTime:$('startTime').value,endTime:$('endTime').value,type:trial?'首次体验':$('courseType').value,notes:$('notes').value.trim()};if(!x.studentName)return alert(trial?'请输入体验学员姓名':'请选择会员');if(x.endTime<=x.startTime)return alert('结束时间需要晚于开始时间');if(x.kind==='temporary'&&!x.date)return alert('临时约课 / 首次体验需要日期');try{const id=$('courseId').value;if(id)await TrainLogCloud.updateSchedule(id,x);else await TrainLogCloud.createSchedule(x);$('courseDialog').close();await load()}catch(err){alert('保存失败：'+err.message)}};
+$('courseForm').onsubmit=async e=>{
+  e.preventDefault();
+  if(courseSaving)return;
+  const trial=$('appointmentType').value==='trial';
+  const studentName=trial?$('trialName').value.trim():$('studentName').value;
+  const k=trial?'temporary':$('kind').value;
+  const x={studentName,kind:k,day:k==='fixed'?Number($('weekday').value):null,date:k==='temporary'?$('courseDate').value:'',startTime:$('startTime').value,endTime:$('endTime').value,type:trial?'首次体验':$('courseType').value,notes:$('notes').value.trim()};
+  if(!x.studentName)return alert(trial?'请输入体验学员姓名':'请选择会员');
+  if(x.endTime<=x.startTime)return alert('结束时间需要晚于开始时间');
+  if(x.kind==='temporary'&&!x.date)return alert('临时约课 / 首次体验需要日期');
+  const id=$('courseId').value;
+  const localConflict=findConflict(x,id);
+  if(localConflict)return alert(conflictMessage(localConflict));
+  courseSaving=true;
+  const saveBtn=$('saveCourseBtn')||$('courseForm').querySelector('button[type="submit"]');
+  if(saveBtn){saveBtn.disabled=true;saveBtn.textContent='保存中…';}
+  try{
+    // 保存前同步最新云端状态，减少多人同时排课时的冲突；数据库端还有最终触发器保护。
+    const [freshSchedules,freshExceptions]=await Promise.all([TrainLogCloud.listSchedules(),TrainLogCloud.listExceptions?TrainLogCloud.listExceptions():Promise.resolve([])]);
+    schedules=freshSchedules; exceptions=freshExceptions;
+    const freshConflict=findConflict(x,id,freshSchedules,freshExceptions);
+    if(freshConflict)throw new Error(conflictMessage(freshConflict));
+    if(id)await TrainLogCloud.updateSchedule(id,x);else await TrainLogCloud.createSchedule(x);
+    $('courseDialog').close();
+    await load();
+  }catch(err){
+    alert('保存失败：'+err.message);
+  }finally{
+    courseSaving=false;
+    if(saveBtn){saveBtn.disabled=false;saveBtn.textContent='保存';}
+  }
+};
 $('deleteBtn').onclick=async()=>{const id=$('courseId').value;if(!id||!confirm('确定删除这节课程？'))return;try{await TrainLogCloud.deleteSchedule(id);$('courseDialog').close();await load()}catch(err){alert('删除失败：'+err.message)}};
 $('memberForm').onsubmit=async e=>{e.preventDefault();const x={name:$('memberName').value.trim(),sex:$('memberSex').value,birth:$('memberBirth').value,goal:$('memberGoal').value.trim(),contact:$('memberContact').value.trim(),notes:$('memberNotes').value.trim()};if(!x.name)return alert('请输入会员姓名');try{const id=$('memberId').value;if(id)await TrainLogCloud.updateMember(id,x);else await TrainLogCloud.createMember(x);$('memberDialog').close();await load()}catch(err){alert('会员保存失败：'+err.message)}};
 $('deleteMemberBtn').onclick=async()=>{const id=$('memberId').value;if(!id||!confirm('确定删除该会员？已排课程不会自动删除。'))return;try{await TrainLogCloud.deleteMember(id);$('memberDialog').close();await load()}catch(err){alert('删除失败：'+err.message)}};load();

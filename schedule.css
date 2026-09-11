@@ -24,3 +24,6 @@
 .timeline-grid .merged-course.event-leave{background:#f3f4f6;border-color:#9ca3af;color:#4b5563}
 .course-main{min-width:0;flex:1}.course-side{display:flex;align-items:flex-end;gap:8px;flex-direction:column}.course-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}.course-actions .tiny{padding:5px 8px;border-radius:8px;font-size:11px;background:#fff;color:#374151;border:1px solid #d1d5db}.course-actions .tiny.cancel{color:#b91c1c;border-color:#fecaca;background:#fff7f7}
 @media(max-width:650px){.course-side{width:100%;align-items:flex-start}.course-actions{justify-content:flex-start}}
+
+/* v2.4.6: prevent repeat submissions while cloud save is pending */
+button:disabled{opacity:.55;cursor:default;pointer-events:none}
