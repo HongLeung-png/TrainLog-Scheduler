@@ -27,3 +27,15 @@
 
 /* v2.4.6: prevent repeat submissions while cloud save is pending */
 button:disabled{opacity:.55;cursor:default;pointer-events:none}
+
+/* v2.4.7: member pagination + narrow WeChat wrapping */
+.member-pagination{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:14px;flex-wrap:wrap;color:#6b7280;font-size:13px}
+.member-page-btn{padding:8px 12px;min-width:76px}
+@media(max-width:650px){
+  .course{flex-direction:row;flex-wrap:wrap;align-items:flex-start}
+  .course-main{flex:1 1 180px;min-width:0}
+  .course-side{width:auto;max-width:100%;flex:1 1 150px;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:6px}
+  .course-side .tag{flex:0 0 auto}
+  .course-actions{flex:1 1 128px;justify-content:flex-start;flex-wrap:wrap}
+  .course-actions .tiny{flex:0 0 auto}
+}

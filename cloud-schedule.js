@@ -23,9 +23,9 @@
   async function setScheduleException(scheduleId,date,status){const rows=await rest('trainlog_schedule_exceptions?on_conflict=schedule_id,occurrence_date&select=*',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({schedule_id:scheduleId,occurrence_date:date,status,updated_at:new Date().toISOString()})});return mapException(rows[0]);}
   async function deleteScheduleException(scheduleId,date){await rest(`trainlog_schedule_exceptions?schedule_id=eq.${encodeURIComponent(scheduleId)}&occurrence_date=eq.${encodeURIComponent(date)}`,{method:'DELETE',headers:{Prefer:'return=minimal'}});return true;}
 
-  const mapMember=r=>({id:r.id,name:r.name||'',sex:r.sex||'',birth:r.birth||'',goal:r.goal||'',contact:r.contact||'',notes:r.notes||'',createdAt:r.created_at||'',updatedAt:r.updated_at||''});
-  const toMember=x=>({name:String(x.name||'').trim(),sex:x.sex||'',birth:x.birth||null,goal:x.goal||'',contact:x.contact||'',notes:x.notes||'',updated_at:new Date().toISOString()});
-  async function listMembers(){const rows=await rest('trainlog_members?select=id,name,sex,birth,goal,contact,notes,created_at,updated_at&order=name.asc');return (rows||[]).map(mapMember);}
+  const mapMember=r=>({id:r.id,name:r.name||'',alias:r.alias||'',sex:r.sex||'',birth:r.birth||'',goal:r.goal||'',contact:r.contact||'',notes:r.notes||'',createdAt:r.created_at||'',updatedAt:r.updated_at||''});
+  const toMember=x=>({name:String(x.name||'').trim(),alias:String(x.alias||'').trim(),sex:x.sex||'',birth:x.birth||null,goal:x.goal||'',contact:x.contact||'',notes:x.notes||'',updated_at:new Date().toISOString()});
+  async function listMembers(){const rows=await rest('trainlog_members?select=id,name,alias,sex,birth,goal,contact,notes,created_at,updated_at&order=name.asc');return (rows||[]).map(mapMember);}
   async function createMember(x){const rows=await rest('trainlog_members?select=*',{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify(toMember(x))});return mapMember(rows[0]);}
   async function updateMember(id,x){const rows=await rest(`trainlog_members?id=eq.${encodeURIComponent(id)}&select=*`,{method:'PATCH',headers:{Prefer:'return=representation'},body:JSON.stringify(toMember(x))});return mapMember(rows[0]);}
   async function deleteMember(id){await rest(`trainlog_members?id=eq.${encodeURIComponent(id)}`,{method:'DELETE',headers:{Prefer:'return=minimal'}});return true;}
