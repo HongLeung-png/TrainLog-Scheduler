@@ -51,7 +51,7 @@ function locksForDate(date){return locks.filter(x=>lockAppliesToDate(x,date)).so
 function findLockConflict(candidate,sourceLocks=locks){return (sourceLocks||[]).find(lock=>{if(!intervalsOverlap(candidate,lock))return false;if(kind(candidate)==='temporary')return lockAppliesToDate(lock,candidate.date);if(lock.repeatWeekly)return wd(lock.date)===Number(candidate.day);return lock.date>=today()&&wd(lock.date)===Number(candidate.day)})||null}
 function lockConflictMessage(lock){return `该时间段已锁定：${lock.repeatWeekly?'每周 '+WEEK.find(x=>x.v===wd(lock.date))?.s:lock.date} ${lock.startTime}–${lock.endTime}${lock.notes?` · ${lock.notes}`:''}`}
 function trainingDoseText(x={}){const value=String(x.reps||'').trim(),unit=String(x.unit||'').trim();if(!value)return '';if(!unit||value.endsWith(unit)||/[秒分米次个趟步圈]$/.test(value)||/\b(km|m)$/i.test(value))return value;return `${value}${unit}`;}
-function readonlyContentHtml(detail){if(!detail||(!(detail.tests||[]).length&&!(detail.training||[]).length))return '<div class="empty small">该课程还没有安排测试或训练。</div>';return `<div class="readonly-content">${detail.tests?.length?`<h3>测试内容</h3><table class="content-table"><tbody>${detail.tests.map(x=>`<tr><td>${esc(x.category||'')}</td><td>${esc(x.subgroup||'')}</td><td>${esc(x.testName||'')}</td></tr>`).join('')}</tbody></table>`:''}${detail.training?.length?`<h3>训练内容</h3><table class="content-table"><tbody>${detail.training.map(x=>`<tr><td>${esc(x.category||'')}</td><td>${esc(x.name||'')}</td><td>${esc(x.sets||'')}组 × ${esc(trainingDoseText(x))}</td><td>${esc(x.load||'')}</td></tr>`).join('')}</tbody></table>${detail.trainingNotes?`<p class="content-notes">${esc(detail.trainingNotes)}</p>`:''}`:''}</div>`}
+function readonlyContentHtml(detail){if(!detail||(!(detail.tests||[]).length&&!(detail.training||[]).length&&!detail.parentGoal&&!detail.parentSummary&&!detail.parentFeedback))return '<div class="empty small">该课程还没有安排测试或训练。</div>';return `<div class="readonly-content">${detail.parentGoal||detail.parentSummary||detail.parentFeedback?`<div class="parent-course-summary"><h3>家长可见课程说明</h3>${detail.parentGoal?`<p><strong>课程目标：</strong>${esc(detail.parentGoal)}</p>`:''}${detail.parentSummary?`<p>${esc(detail.parentSummary)}</p>`:''}${detail.parentFeedback?`<h4>课后反馈</h4><p>${esc(detail.parentFeedback)}</p>`:''}</div>`:''}${detail.tests?.length?`<h3>测试内容</h3><table class="content-table"><tbody>${detail.tests.map(x=>`<tr><td>${esc(x.category||'')}</td><td>${esc(x.subgroup||'')}</td><td>${esc(x.testName||'')}</td></tr>`).join('')}</tbody></table>`:''}${detail.training?.length?`<h3>训练内容</h3><table class="content-table"><tbody>${detail.training.map(x=>`<tr><td>${esc(x.category||'')}</td><td>${esc(x.name||'')}</td><td>${esc(x.sets||'')}组 × ${esc(trainingDoseText(x))}</td><td>${esc(x.load||'')}</td></tr>`).join('')}</tbody></table>${detail.trainingNotes?`<p class="content-notes">${esc(detail.trainingNotes)}</p>`:''}`:''}</div>`}
 function openContent(x,date){const detail=contentFor(x.id,date);$('contentTitle').textContent=`${scheduleDisplayName(x)} · ${date}`;$('contentBody').innerHTML=readonlyContentHtml(detail);$('contentDialog').showModal()}
 
 function memberDisplayName(m){
@@ -173,7 +173,7 @@ function card(x,rowStart=1,span=1){
   const leave=x.attendanceStatus==='leave',detail=contentFor(x.id,x.occurrenceDate),hasContent=!!(detail?.tests?.length||detail?.training?.length);
   const label=leave?'已请假':(isTrial(x)?'首次体验':(kind(x)==='temporary'?'临时约课':'固定课'));
   return `<div class="course merged-course ${eventClass(x)}" style="grid-row:${rowStart} / span ${span};grid-column:2" data-id="${x.id}">
-    <div class="course-main"><strong>${x.startTime}–${x.endTime} · ${esc(scheduleDisplayName(x))}</strong><small>${esc(x.type||'综合')}${x.trialAge?` · ${esc(x.trialAge)}岁`:''}${x.notes?` · ${esc(x.notes)}`:''}${hasContent?' · 已安排内容':''}</small></div>
+    <div class="course-main"><strong>${x.startTime}–${x.endTime} · ${esc(scheduleDisplayName(x))}</strong><small>${esc(x.type||'综合')}${x.trialAge?` · ${esc(x.trialAge)}岁`:''}${x.trialParentNeed?` · 家长：${esc(x.trialParentNeed)}`:''}${x.notes?` · ${esc(x.notes)}`:''}${hasContent?' · 已安排内容':''}</small></div>
     <div class="course-side"><span class="tag">${label}</span><div class="course-actions">
       <button type="button" class="course-content tiny" data-id="${x.id}" data-date="${x.occurrenceDate}">内容</button>
       <button type="button" class="course-edit tiny" data-id="${x.id}">编辑</button>
@@ -252,6 +252,9 @@ function openCourse(x=null,preset=''){
   fillMembers('',trial?(members[0]?.id||''):(x?.memberId||x?.studentName||members[0]?.id||''));
   $('trialName').value=trial?x.studentName:'';
   $('trialAge').value=trial?(x.trialAge||''):'';
+  $('trialMemberNeed').value=trial?(x.trialMemberNeed||''):'';
+  $('trialParentNeed').value=trial?(x.trialParentNeed||''):'';
+  $('trialNotes').value=trial?(x.trialNotes||''):'';
   $('weekday').value=x?.day||wd(selected);
   $('courseDate').value=x?.date||selected;
   $('startTime').value=x?.startTime||preset||'16:00';
@@ -321,6 +324,9 @@ $('courseForm').onsubmit=async e=>{
     startTime:$('startTime').value,endTime:$('endTime').value,
     type:trial?'首次体验':$('courseType').value,
     trialAge:trial?$('trialAge').value:'',
+    trialMemberNeed:trial?$('trialMemberNeed').value.trim():'',
+    trialParentNeed:trial?$('trialParentNeed').value.trim():'',
+    trialNotes:trial?$('trialNotes').value.trim():'',
     notes:$('notes').value.trim()
   };
   if(!x.studentName)return alert(trial?'请输入体验学员姓名':'请选择会员');
@@ -383,7 +389,8 @@ $('memberForm').onsubmit=async e=>{
     goal:$('memberGoal').value.trim(),
     contact:$('memberContact').value.trim(),
     notes:$('memberNotes').value.trim(),
-    memberCode:existingMember?.memberCode||''
+    memberCode:existingMember?.memberCode||'',
+    profile:existingMember?.profile||{}
   };
   if(!x.name&&!x.alias)return alert('姓名或英文名/小名至少填写一项');
   memberSaving=true;
