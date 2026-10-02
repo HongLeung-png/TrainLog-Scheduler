@@ -124,6 +124,7 @@ function render(){
         <span>${d.s}</span><small>${d.md} · ${rows(d.date).length}节</small>
       </button>`).join('')}
     </div>
+    <div class="schedule-legend" aria-label="课表类型说明"><span>固定课</span><span class="legend-temp">临时约课</span><span class="legend-trial">首次体验</span><span class="legend-leave">请假 / 锁定</span></div>
     ${timeline(selected)}
     <div class="members">
       <div class="members-head">
@@ -420,3 +421,4 @@ $('deleteMemberBtn').onclick=async()=>{
 };
 
 load();
+
