@@ -32,14 +32,20 @@ function week(s){
   return WEEK.map((w,i)=>{const x=new Date(d);x.setDate(d.getDate()+i);return{...w,date:dateStr(x),md:`${x.getMonth()+1}/${x.getDate()}`}})
 }
 function kind(x){return x.kind==='temporary'?'temporary':'fixed'}
-function exceptionFor(id,date){return exceptions.find(e=>String(e.scheduleId)===String(id)&&e.date===date)||null}
-function rows(date){
-  return schedules
-    .filter(x=>kind(x)==='fixed'?Number(x.day)===wd(date):x.date===date)
-    .map(x=>{const ex=exceptionFor(x.id,date);return {...x,occurrenceDate:date,attendanceStatus:ex?.status||''}})
-    .filter(x=>x.attendanceStatus!=='cancelled')
-    .sort((a,b)=>a.startTime.localeCompare(b.startTime));
+function exceptionFor(id,date){
+  const raw=exceptions.find(e=>String(e.scheduleId||e.schedule_id)===String(id)&&String(e.date||e.occurrence_date)===date);
+  return raw?TrainLogOccurrence.normalizeException(raw):null;
 }
+/* 某一天的有效发生次。改期后的课在目标日期出现、原日期消失。
+   日期条计数、周课次、时间轴、冲突判断全部走这里，避免各算一套。 */
+function rows(date){
+  return TrainLogOccurrence.expand({
+    date,
+    schedules:schedules||[],
+    exceptions:exceptions||[]
+  });
+}
+
 function esc(v){const d=document.createElement('div');d.textContent=v??'';return d.innerHTML}
 function tm(t){const[h,m]=String(t).split(':').map(Number);return(h||0)*60+(m||0)}
 function mt(n){return `${String(Math.floor(n/60)).padStart(2,'0')}:${String(n%60).padStart(2,'0')}`}
@@ -101,33 +107,21 @@ function scheduleDisplayName(x){
   return found?memberDisplayName(found):raw;
 }
 
+/* 冲突判定统一走 occurrence-model：
+   临时课按「当天有效发生次」比对，已改期离开的不再误报，
+   被改期进来的会正确参与冲突；固定课仍按周模式。 */
 function findConflict(candidate,ignoreId='',sourceSchedules=schedules,sourceExceptions=exceptions){
-  const ck=kind(candidate);
-  const exFor=(id,date)=>(sourceExceptions||[]).find(e=>String(e.scheduleId)===String(id)&&e.date===date)||null;
-  for(const other of sourceSchedules||[]){
-    if(ignoreId&&String(other.id)===String(ignoreId))continue;
-    if(!intervalsOverlap(candidate,other))continue;
-    const ok=kind(other);
-    if(ck==='fixed'&&ok==='fixed'){
-      if(Number(candidate.day)===Number(other.day))return other;
-      continue;
-    }
-    if(ck==='temporary'&&ok==='temporary'){
-      if(candidate.date&&candidate.date===other.date)return other;
-      continue;
-    }
-    if(ck==='temporary'&&ok==='fixed'){
-      if(!candidate.date||wd(candidate.date)!==Number(other.day))continue;
-      if(exFor(other.id,candidate.date)?.status==='cancelled')continue;
-      return other;
-    }
-    if(ck==='fixed'&&ok==='temporary'){
-      if(!other.date||wd(other.date)!==Number(candidate.day))continue;
-      if(other.date<today())continue;
-      return other;
-    }
-  }
-  return null;
+  return TrainLogOccurrence.findConflict({
+    kind:kind(candidate),
+    day:candidate.day,
+    date:candidate.date||'',
+    startTime:candidate.startTime,
+    endTime:candidate.endTime,
+    ignoreId,
+    schedules:sourceSchedules||[],
+    exceptions:sourceExceptions||[],
+    today:today()
+  });
 }
 function conflictMessage(x){
   return `该时间段已被「${scheduleDisplayName(x)}」${x.startTime}–${x.endTime} 占用，请选择其它时间。`;
@@ -406,22 +400,30 @@ function nowLine(date){
   return `<div class="now-line" style="top:${top}%"><time>${mt(minutes)}</time></div>`;
 }
 
+/* 改期来源的一句话说明：跨日给日期，同日给原时间 */
+function movedCaption(x){
+  const from=x.movedFromDate||'';
+  if(from&&from!==x.effectiveDate)return `原 ${from.slice(5).replace('-','/')}`;
+  return `原 ${x.movedFromTime||''}`.trim();
+}
+
 function card(x,p,conflict=false){
   const leave=x.attendanceStatus==='leave';
+  const moved=x.attendanceStatus==='moved';
   const detail=contentFor(x.id,x.occurrenceDate);
   const hasContent=!!(detail?.tests?.length||detail?.training?.length);
-  const label=leave?'已请假':(isTrial(x)?'首次体验':(kind(x)==='temporary'?'临时约课':'固定课'));
+  const label=moved?'已改期':(leave?'已请假':(isTrial(x)?'首次体验':(kind(x)==='temporary'?'临时约课':'固定课')));
 
   /* 三行信息的可读性取决于卡片实际高度，不足一小时只保留时间与姓名 */
   const compact=p.minutes<60;
-  const metaParts=[label, x.type||'综合'];
+  const metaParts=moved?[label,movedCaption(x),x.type||'综合']:[label, x.type||'综合'];
   if(hasContent)metaParts.push('已安排内容');
 
-  return `<div class="course ${eventClass(x)} ${compact?'compact':''} ${conflict?'has-conflict':''}"
+  return `<div class="course ${eventClass(x)} ${compact?'compact':''} ${moved?'is-moved':''} ${conflict?'has-conflict':''}"
       style="top:${p.top}%;height:${p.height}%"
       data-id="${x.id}" data-date="${x.occurrenceDate}"
       role="button" tabindex="0"
-      aria-label="${esc(x.startTime)} 至 ${esc(x.endTime)}，${esc(scheduleDisplayName(x))}">
+      aria-label="${esc(x.startTime)} 至 ${esc(x.endTime)}，${esc(scheduleDisplayName(x))}${moved?'，已改期':''}">
     <span class="course-time">${esc(x.startTime)}–${esc(x.endTime)}</span>
     <span class="course-name">${esc(scheduleDisplayName(x))}</span>
     <span class="course-meta"><i></i>${metaParts.map(esc).join(' · ')}</span>
@@ -448,17 +450,23 @@ function openMenu(btn){
   if(!x)return;
   const ex=exceptionFor(id,date);
   const leave=ex?.status==='leave';
+  const moved=ex?.status==='moved';
 
   const menu=document.createElement('div');
   menu.className='course-menu';
   menu.id='courseMenu';
   menu.setAttribute('role','menu');
+  /* 已改期的这一节不提供请假/取消：一条 occurrence 只能有一种终态，
+     直接改成 leave 会覆盖 moved 记录（旧客户端就是这样静默丢失改期的）。
+     要请假先撤销改期，路径短且不丢数据。 */
   menu.innerHTML=`
     <button type="button" role="menuitem" data-act="content">查看课程内容</button>
     <button type="button" role="menuitem" data-act="edit">编辑课程</button>
-    <button type="button" role="menuitem" data-act="leave">${leave?'恢复本节':'标记请假'}</button>
-    <hr>
-    <button type="button" role="menuitem" class="is-danger" data-act="cancel">取消本节</button>`;
+    ${moved
+      ? '<button type="button" role="menuitem" data-act="undo-move">撤销改期</button>'
+      : `<button type="button" role="menuitem" data-act="leave">${leave?'恢复本节':'标记请假'}</button>
+         <hr>
+         <button type="button" role="menuitem" class="is-danger" data-act="cancel">取消本节</button>`}`;
   document.body.appendChild(menu);
 
   /* fixed 定位 + 视口内翻转，确保菜单不会压住相邻课程或被裁掉 */
@@ -472,7 +480,30 @@ function openMenu(btn){
 
   menu.querySelector('[data-act="content"]').onclick=()=>{closeMenu();openContent(x,date)};
   menu.querySelector('[data-act="edit"]').onclick=()=>{closeMenu();openCourse(x)};
-  menu.querySelector('[data-act="leave"]').onclick=async()=>{
+
+  const undoBtn=menu.querySelector('[data-act="undo-move"]');
+  if(undoBtn)undoBtn.onclick=async()=>{
+    closeMenu();
+    const ok=await askConfirm('撤销改期',
+      `把「${scheduleDisplayName(x)}」${date} 这一次恢复到原定时间？训练内容与历史记录不受影响。`,
+      '撤销改期');
+    if(!ok)return;
+    try{
+      if(!TrainLogCloud.undoMoveOccurrence)throw new Error('当前后端还不支持撤销改期');
+      const r=await TrainLogCloud.undoMoveOccurrence(id,date);
+      if(!r||r.ok===false)throw new Error(r?.message||r?.error||'撤销失败');
+      notify('已恢复原排课','ok');
+      await load();
+    }catch(err){
+      const msg=/could not find the function|404/i.test(err.message||'')
+        ? '后端还没有部署撤销改期的函数，本次没有改动任何数据。'
+        : err.message;
+      notify('撤销改期失败：'+msg,'error');
+    }
+  };
+
+  const leaveBtn=menu.querySelector('[data-act="leave"]');
+  if(leaveBtn)leaveBtn.onclick=async()=>{
     closeMenu();
     try{
       if(leave)await TrainLogCloud.deleteScheduleException(id,date);
@@ -481,7 +512,8 @@ function openMenu(btn){
       await load();
     }catch(err){notify('请假操作失败：'+err.message,'error')}
   };
-  menu.querySelector('[data-act="cancel"]').onclick=async()=>{
+  const cancelBtn=menu.querySelector('[data-act="cancel"]');
+  if(cancelBtn)cancelBtn.onclick=async()=>{
     closeMenu();
     const ok=await askConfirm('取消本节课程',`确定取消「${scheduleDisplayName(x)}」${date} ${x.startTime}–${x.endTime} 这节课？${kind(x)==='fixed'?'固定课只取消当天这一节，后续周次不受影响。':'该临时课程会被直接删除。'}`,'确认取消');
     if(!ok)return;

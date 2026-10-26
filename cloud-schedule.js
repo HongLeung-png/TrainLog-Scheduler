@@ -19,8 +19,48 @@
   async function updateSchedule(id,x){const rows=await rest(`trainlog_schedules?id=eq.${encodeURIComponent(id)}&select=*`,{method:'PATCH',headers:{Prefer:'return=representation'},body:JSON.stringify(toSchedule(x))});return mapSchedule(rows[0]);}
   async function deleteSchedule(id){await rest(`trainlog_schedules?id=eq.${encodeURIComponent(id)}`,{method:'DELETE',headers:{Prefer:'return=minimal'}});return true;}
 
-  const mapException=r=>({id:r.id,scheduleId:r.schedule_id,date:r.occurrence_date||'',status:r.status||'',createdAt:r.created_at||'',updatedAt:r.updated_at||''});
-  async function listExceptions(){const rows=await rest('trainlog_schedule_exceptions?select=id,schedule_id,occurrence_date,status,created_at,updated_at&order=occurrence_date.asc');return (rows||[]).map(mapException);}
+  const mapException=r=>({id:r.id,scheduleId:r.schedule_id,date:r.occurrence_date||'',status:r.status||'',movedToDate:r.moved_to_date||'',movedToStart:String(r.moved_to_start||'').slice(0,5),movedToEnd:String(r.moved_to_end||'').slice(0,5),createdAt:r.created_at||'',updatedAt:r.updated_at||''});
+  /* moved 列是后加的。老库上 select 它会返回 400，
+     所以先试完整列，失败后退回基础列并记住结果 —— 兼容路径，不是错误。 */
+  let movedColumnsAvailable=null;
+  const EXCEPTION_BASE='id,schedule_id,occurrence_date,status,created_at,updated_at';
+  async function listExceptions(){
+    if(movedColumnsAvailable===false){
+      const rows=await rest(`trainlog_schedule_exceptions?select=${EXCEPTION_BASE}&order=occurrence_date.asc`);
+      return (rows||[]).map(mapException);
+    }
+    try{
+      const rows=await rest(`trainlog_schedule_exceptions?select=${EXCEPTION_BASE},moved_to_date,moved_to_start,moved_to_end&order=occurrence_date.asc`);
+      movedColumnsAvailable=true;
+      return (rows||[]).map(mapException);
+    }catch(err){
+      if(movedColumnsAvailable===true)throw err;
+      movedColumnsAvailable=false;
+      const rows=await rest(`trainlog_schedule_exceptions?select=${EXCEPTION_BASE}&order=occurrence_date.asc`);
+      return (rows||[]).map(mapException);
+    }
+  }
+  function movedSchemaReady(){return movedColumnsAvailable===true;}
+  async function probeMovedSchema(){
+    if(movedColumnsAvailable!==null)return movedColumnsAvailable;
+    try{await listExceptions();}catch(_){return false;}
+    return movedColumnsAvailable===true;
+  }
+  /* 改期与撤销都必须走原子 RPC：冲突检查与写入在同一个事务里，
+     前端先查后写挡不住并发。 */
+  async function moveOccurrence(scheduleId,fromDate,toDate,startTime,endTime,idempotencyKey){
+    const data=await rest('rpc/trainlog_move_occurrence_atomic',{method:'POST',body:JSON.stringify({
+      p_schedule_id:scheduleId,p_from_date:fromDate,p_to_date:toDate,
+      p_to_start:startTime,p_to_end:endTime,p_idempotency_key:idempotencyKey
+    })});
+    return data||{ok:false,error:'empty_response'};
+  }
+  async function undoMoveOccurrence(scheduleId,fromDate){
+    const data=await rest('rpc/trainlog_undo_move_atomic',{method:'POST',body:JSON.stringify({
+      p_schedule_id:scheduleId,p_from_date:fromDate
+    })});
+    return data||{ok:false,error:'empty_response'};
+  }
   async function setScheduleException(scheduleId,date,status){const rows=await rest('trainlog_schedule_exceptions?on_conflict=schedule_id,occurrence_date&select=*',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({schedule_id:scheduleId,occurrence_date:date,status,updated_at:new Date().toISOString()})});return mapException(rows[0]);}
   async function deleteScheduleException(scheduleId,date){await rest(`trainlog_schedule_exceptions?schedule_id=eq.${encodeURIComponent(scheduleId)}&occurrence_date=eq.${encodeURIComponent(date)}`,{method:'DELETE',headers:{Prefer:'return=minimal'}});return true;}
 
@@ -42,5 +82,5 @@
   async function listScheduleContents(){const rows=await rest('trainlog_schedule_contents?select=id,schedule_id,occurrence_date,tests,training,training_notes,parent_goal,parent_summary,parent_feedback,created_at,updated_at&order=occurrence_date.asc');return (rows||[]).map(mapContent);}
   async function upsertScheduleContent(x){const rows=await rest('trainlog_schedule_contents?on_conflict=schedule_id,occurrence_date&select=*',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({schedule_id:x.scheduleId,occurrence_date:x.date,tests:x.tests||[],training:x.training||[],training_notes:x.trainingNotes||'',parent_goal:x.parentGoal||'',parent_summary:x.parentSummary||'',parent_feedback:x.parentFeedback||'',updated_at:new Date().toISOString()})});return mapContent(rows[0]);}
 
-  window.TrainLogCloud={getConfig,setConfig,isConfigured,getSession,hasSession,signIn,signOut,listSchedules,createSchedule,updateSchedule,deleteSchedule,listExceptions,setScheduleException,deleteScheduleException,listMembers,createMember,updateMember,updateMemberByCode,deleteMember,deleteMemberByCode,listLocks,createLock,deleteLock,listScheduleContents,upsertScheduleContent};
+  window.TrainLogCloud={getConfig,setConfig,isConfigured,getSession,hasSession,signIn,signOut,listSchedules,createSchedule,updateSchedule,deleteSchedule,listExceptions,setScheduleException,deleteScheduleException,moveOccurrence,undoMoveOccurrence,movedSchemaReady,probeMovedSchema,listMembers,createMember,updateMember,updateMemberByCode,deleteMember,deleteMemberByCode,listLocks,createLock,deleteLock,listScheduleContents,upsertScheduleContent};
 })();

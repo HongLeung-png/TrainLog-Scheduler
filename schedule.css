@@ -583,6 +583,15 @@ input,select,textarea{ font:inherit; }
 .course.compact{ padding-top:4px; padding-bottom:4px; justify-content:center; }
 .course.compact .course-meta{ display:none; }
 
+/* 改期卡片：左条仍是青色 —— 它依然是一节固定课，改的只是这一次的时间。
+   不额外加色块，避免课表变成调色板；只在紧凑卡片上补两个字，
+   因为紧凑模式会把 meta 行隐藏，否则和普通课长得一模一样。 */
+.course.compact.is-moved .course-time::after{
+  content:" · 改期";
+  color:var(--text-2);
+  font-weight:500;
+}
+
 .course-more{
   position:absolute;
   top:2px;
