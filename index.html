@@ -106,8 +106,24 @@
       <section class="field-group">
         <h3>时间</h3>
         <div class="two">
-          <label class="field"><span>开始</span><input id="startTime" type="time" required value="16:00"></label>
-          <label class="field"><span>结束</span><input id="endTime" type="time" required value="17:00"></label>
+          <div class="field"><span>开始</span>
+            <div class="time-field">
+              <input id="startTime" class="time-input" type="text" inputmode="numeric" autocomplete="off"
+                     maxlength="5" required value="16:00" placeholder="HH:mm" aria-label="开始时间，24 小时制">
+              <button type="button" class="time-pick" data-time-for="startTime" aria-label="打开时间选择器">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="8.4"/><path d="M12 7.6V12l3.1 1.9"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="field"><span>结束</span>
+            <div class="time-field">
+              <input id="endTime" class="time-input" type="text" inputmode="numeric" autocomplete="off"
+                     maxlength="5" required value="17:00" placeholder="HH:mm" aria-label="结束时间，24 小时制">
+              <button type="button" class="time-pick" data-time-for="endTime" aria-label="打开时间选择器">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="8.4"/><path d="M12 7.6V12l3.1 1.9"/></svg>
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 

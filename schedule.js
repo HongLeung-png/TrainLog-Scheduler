@@ -204,6 +204,96 @@ function setStatus(text,isError=false){
   el.classList.toggle('error',!!isError);
 }
 
+/* ══════════════ 24 小时制时间输入 ══════════════
+   显示层自己控制，不让浏览器按 locale 渲染成「下午 04:00」。
+   对外只暴露 HH:mm 字符串，业务层的 tm()/比较/时长计算完全不感知这次改动。 */
+
+const TIME_PATTERN=/^([01]\d|2[0-3]):([0-5]\d)$/;
+function isValidTime(v){return TIME_PATTERN.test(String(v||''))}
+
+/* 把 1600 / 9:5 / 930 / 16 统一成 HH:mm；无法解析时返回 null */
+function normalizeTime(raw){
+  const s=String(raw||'').trim().replace(/[：.．]/g,':').replace(/\s+/g,'');
+  if(!s)return null;
+  let h,mi;
+  if(/^\d+$/.test(s)){
+    if(s.length<=2){h=Number(s);mi=0}
+    else if(s.length===3){h=Number(s.slice(0,1));mi=Number(s.slice(1))}
+    else if(s.length===4){h=Number(s.slice(0,2));mi=Number(s.slice(2))}
+    else return null;
+  }else{
+    const m=s.match(/^(\d{1,2}):(\d{1,2})$/);
+    if(!m)return null;
+    h=Number(m[1]);mi=Number(m[2]);
+  }
+  if(!Number.isFinite(h)||!Number.isFinite(mi))return null;
+  if(h<0||h>23||mi<0||mi>59)return null;
+  return `${String(h).padStart(2,'0')}:${String(mi).padStart(2,'0')}`;
+}
+
+function markTimeInvalid(input,on){
+  if(!input)return;
+  input.classList.toggle('is-invalid',!!on);
+  if(on)input.setAttribute('aria-invalid','true');
+  else input.removeAttribute('aria-invalid');
+}
+
+function setupTimeField(input){
+  if(!input)return;
+  input.addEventListener('input',()=>{
+    /* 只保留数字与冒号：中文输入法很容易打出「16时」，直接挡掉 */
+    const cleaned=input.value.replace(/[^\d:：.．]/g,'').slice(0,5);
+    if(cleaned!==input.value)input.value=cleaned;
+    markTimeInvalid(input,false);
+  });
+  input.addEventListener('blur',()=>{
+    const raw=input.value.trim();
+    if(!raw)return;
+    const v=normalizeTime(raw);
+    if(v){input.value=v;markTimeInvalid(input,false)}
+    else markTimeInvalid(input,true);
+  });
+  input.addEventListener('focus',()=>{
+    if(input.value&&isValidTime(input.value))input.setSelectionRange(0,5);
+  });
+}
+
+/* 调起系统时间选择器：只用来取一个 HH:mm，不参与显示 */
+function openTimePicker(input){
+  if(!input)return;
+  const proxy=document.createElement('input');
+  proxy.type='time';
+  proxy.className='native-time-proxy';
+  proxy.tabIndex=-1;
+  proxy.setAttribute('aria-hidden','true');
+  proxy.value=isValidTime(input.value)?input.value:'12:00';
+  document.body.appendChild(proxy);
+
+  let done=false;
+  const finish=(apply)=>{
+    if(done)return;
+    done=true;
+    if(apply&&proxy.value){
+      const v=normalizeTime(proxy.value.slice(0,5));
+      if(v){input.value=v;markTimeInvalid(input,false)}
+    }
+    proxy.remove();
+    input.dispatchEvent(new Event('change',{bubbles:true}));
+  };
+
+  proxy.addEventListener('change',()=>finish(true));
+  proxy.addEventListener('cancel',()=>finish(false));
+  proxy.addEventListener('blur',()=>setTimeout(()=>finish(false),120));
+
+  try{
+    if(typeof proxy.showPicker==='function')proxy.showPicker();
+    else{proxy.focus();proxy.click()}
+  }catch(err){
+    proxy.focus();
+    proxy.click();
+  }
+}
+
 /* ══════════════ 渲染 ══════════════ */
 
 function render(){
@@ -504,8 +594,11 @@ function openCourse(x=null,preset=''){
   $('trialNotes').value=trial?(x.trialNotes||''):'';
   $('weekday').value=x?.day||wd(selected);
   $('courseDate').value=x?.date||selected;
-  $('startTime').value=x?.startTime||preset||'16:00';
-  $('endTime').value=x?.endTime||(preset?mt(Math.min(tm(preset)+60,1260)):'17:00');
+  /* 数据库里的时间已是 HH:mm，这里再归一化一次，防止历史数据带秒 */
+  $('startTime').value=normalizeTime(x?.startTime||preset||'')||'16:00';
+  $('endTime').value=normalizeTime(x?.endTime)||(preset?mt(Math.min(tm(preset)+60,1260)):'17:00');
+  markTimeInvalid($('startTime'),false);
+  markTimeInvalid($('endTime'),false);
   $('courseType').value=trial?'综合':(x?.type||'综合');
   $('notes').value=x?.notes||'';
   $('deleteBtn').classList.toggle('hidden',!x);
@@ -565,6 +658,12 @@ $('weekday').innerHTML=WEEK.map(x=>`<option value="${x.v}">${x.s}</option>`).joi
 $('memberAge').oninput=()=>{const b=birthFromAge($('memberAge').value);if(b)$('memberBirth').value=b};
 $('memberBirth').onchange=()=>{$('memberAge').value=ageFromBirth($('memberBirth').value)||''};
 
+/* 时间字段：键盘输入 + 触屏选择器，两边写回同一个 HH:mm */
+['startTime','endTime'].forEach(id=>setupTimeField($(id)));
+document.querySelectorAll('.time-pick').forEach(btn=>{
+  btn.onclick=()=>openTimePicker($(btn.dataset.timeFor));
+});
+
 /* 会员搜索：面板是静态 DOM，只绑定一次，避免每次重渲染丢焦点 */
 $('memberListSearch').oninput=e=>{
   memberSearchQuery=e.target.value.trim();
@@ -580,6 +679,20 @@ $('courseForm').onsubmit=async e=>{
   const memberId=trial?'':String(selectedOption?.dataset?.memberId||'');
   const selectedMember=memberId?members.find(m=>m.id===memberId):null;
   const studentName=trial?$('trialName').value.trim():(selectedMember?memberDisplayName(selectedMember):$('studentName').value);
+  /* 保存时用户可能还没失焦，先归一化再校验，避免把 1600 这种半成品提交上去 */
+  const startNorm=normalizeTime($('startTime').value);
+  const endNorm=normalizeTime($('endTime').value);
+  if(!startNorm){
+    markTimeInvalid($('startTime'),true);
+    return notify('开始时间格式应为 HH:mm，例如 09:00','warn');
+  }
+  if(!endNorm){
+    markTimeInvalid($('endTime'),true);
+    return notify('结束时间格式应为 HH:mm，例如 18:30','warn');
+  }
+  $('startTime').value=startNorm;
+  $('endTime').value=endNorm;
+
   const k=trial?'temporary':$('kind').value;
   const x={
     memberId,studentName,kind:k,
@@ -667,7 +780,13 @@ $('memberForm').onsubmit=async e=>{
   try{
     const id=currentId;
     if(id)await TrainLogCloud.updateMember(id,x);
-    else await TrainLogCloud.createMember(x);
+    else{
+      const created=await TrainLogCloud.createMember(x);
+      /* 编号由数据库默认值生成。若默认值被移除，不能让用户以为建档成功却拿到空编号 */
+      if(created&&typeof created==='object'&&!created.memberCode){
+        notify('会员已创建，但数据库未返回会员编号。请刷新后检查该记录的 member_code。','warn',6000);
+      }
+    }
     setBtnState(saveBtn,'ok','已保存');
     notify(currentId?'会员已更新':'会员已创建','ok',1800);
     setTimeout(async()=>{$('memberDialog').close();await load()},420);

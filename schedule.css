@@ -937,6 +937,54 @@ input[type="time"]::-webkit-calendar-picker-indicator{
   cursor:pointer;
 }
 
+/* ── 时间输入：始终显示 HH:mm，不交给浏览器本地化 ──
+   text 输入负责键盘录入与显示，时钟按钮调起原生选择器负责触屏。
+   两者写回同一个 value，业务层读到的永远是 24 小时制字符串。 */
+.time-field{
+  display:flex;
+  gap:6px;
+  min-width:0;
+}
+.time-input{
+  flex:1;
+  min-width:0;
+  font-variant-numeric:tabular-nums;
+  letter-spacing:.02em;
+  text-align:center;
+}
+.time-input.is-invalid{
+  border-color:var(--danger);
+  box-shadow:0 0 0 3px rgba(237,102,115,.14);
+}
+.time-pick{
+  flex:0 0 38px;
+  width:38px;
+  min-height:38px;
+  display:grid;
+  place-items:center;
+  border:1px solid var(--line);
+  border-radius:var(--r-sm);
+  background:var(--bg-sunken);
+  color:var(--text-2);
+  transition:border-color var(--dur-fast) var(--ease),
+             color var(--dur-fast) var(--ease);
+}
+.time-pick:hover{ border-color:var(--line-strong); color:var(--text); }
+.time-pick svg{ width:16px; height:16px; display:block; }
+.time-pick:active{ background:var(--surface-hover); }
+/* 原生选择器只作为触发载体，不参与可见布局 */
+.native-time-proxy{
+  position:fixed;
+  left:50%;
+  top:50%;
+  width:1px;
+  height:1px;
+  padding:0;
+  border:0;
+  opacity:0;
+  pointer-events:none;
+}
+
 /* 确认框 */
 .confirm-modal{ width:min(400px,calc(100vw - 32px)); }
 .confirm-text{ font-size:13.5px; line-height:1.6; color:var(--text-2); }
