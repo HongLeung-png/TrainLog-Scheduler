@@ -1,16 +1,205 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#10110f"><title>长颈鹿的课表🦒</title><link rel="stylesheet" href="schedule.css?v=3.2.9"><link rel="stylesheet" href="black-gold.css?v=3.2.9"></head><body>
-<div class="shell"><header><div><small>TRAINLOG SCHEDULE</small><h1>长颈鹿的课表🦒</h1></div><div class="actions"><button id="memberBtn" class="secondary">＋ 会员</button><button id="addBtn">＋ 排课</button></div></header><section id="status" class="notice"></section><main id="app"></main></div>
-<dialog id="courseDialog"><form method="dialog" id="courseForm"><h2 id="courseTitle">安排课程</h2><input type="hidden" id="courseId">
-<label>约课类型<select id="appointmentType"><option value="regular">常规约课</option><option value="trial">首次体验</option></select></label>
-<div id="scheduleKindField"><label>排课方式<select id="kind"><option value="fixed">固定课 · 每周重复</option><option value="temporary">临时约课 · 仅此日期</option></select></label></div>
-<div id="regularStudentFields"><label>筛选会员<input id="studentSearch" placeholder="输入姓名快速筛选"></label><label>会员<select id="studentName"></select></label></div>
-<div id="trialStudentField"><label>体验会员姓名<input id="trialName" placeholder="直接输入姓名，无需先创建会员"></label><label>年龄<input id="trialAge" type="number" min="0" max="120" placeholder="如：10"></label><label>会员需求<textarea id="trialMemberNeed" rows="2" placeholder="孩子本人想练什么、喜欢什么、希望达到什么"></textarea></label><label>家长需求<textarea id="trialParentNeed" rows="2" placeholder="家长最关注：减脂 / 增高 / 体态 / 体能 / 专项等"></textarea></label><label>体验备注<textarea id="trialNotes" rows="2" placeholder="伤病、注意事项、其他补充"></textarea></label><small>首次体验按单次课程处理；年龄与需求会同步到 App 体验会员资料。</small></div>
-<div id="fixedField"><label>固定星期<select id="weekday"></select></label></div>
-<div id="tempField"><label>约课日期<input id="courseDate" type="date"></label></div>
-<div class="two"><label>开始时间<input id="startTime" type="time" required value="16:00"></label><label>结束时间<input id="endTime" type="time" required value="17:00"></label></div>
-<div id="regularCourseTypeField"><label>课程类型<select id="courseType"><option>力量</option><option>有氧</option><option>速度</option><option>灵敏协调</option><option>爆发</option><option>增高</option><option>减脂</option><option>体态纠正</option><option>专项</option><option>综合</option><option>其它</option></select></label></div>
-<label>备注<input id="notes" placeholder="接送 / 团课 / 调课原因等"></label>
-<div class="dialog-actions"><button type="button" id="deleteBtn" class="danger hidden">删除</button><span class="spacer"></span><button type="button" class="secondary" id="cancelCourse">取消</button><button type="submit" id="saveCourseBtn">保存</button></div></form></dialog>
-<dialog id="memberDialog"><form method="dialog" id="memberForm"><h2 id="memberTitle">创建会员</h2><input type="hidden" id="memberId"><label>会员编号<input id="memberCode" value="保存后自动生成6位编号" readonly></label><label>姓名<input id="memberName" placeholder="姓名与英文名/小名至少填一项"></label><label>英文名/小名<input id="memberAlias" placeholder="如：Eason / 乐乐"></label><div class="two"><label>性别<select id="memberSex"><option value="">未填写</option><option>男</option><option>女</option></select></label><label>年龄<input id="memberAge" type="number" min="0" max="120" placeholder="输入年龄"></label></div><label>出生日期<input id="memberBirth" type="date"></label><label>训练目标<input id="memberGoal" placeholder="减脂 / 增高 / 体态 / 专项"></label><label>联系方式<input id="memberContact"></label><label>备注<input id="memberNotes"></label><div class="dialog-actions"><button type="button" id="deleteMemberBtn" class="danger hidden">删除会员</button><span class="spacer"></span><button type="button" class="secondary" id="cancelMember">取消</button><button type="submit">保存会员</button></div></form></dialog>
-<dialog id="contentDialog"><div class="readonly-dialog"><h2 id="contentTitle">课程内容</h2><div id="contentBody"></div><div class="dialog-actions"><span class="spacer"></span><button type="button" class="secondary" id="closeContent">关闭</button></div></div></dialog>
-<script src="cloud-schedule.js?v=3.2.9"></script><script src="schedule.js?v=3.2.9"></script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#050607">
+<title>长颈鹿的课表 · 排课控制台</title>
+<link rel="stylesheet" href="schedule.css?v=3.3.0">
+</head>
+<body>
+<div class="app-shell">
+
+  <header class="control-bar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 19.5h4.2l2.6-8.2L15 6.4l3.2 2.1"/><circle cx="17.6" cy="6.2" r="1.5"/></svg>
+      </span>
+      <span class="brand-text">
+        <small>TRAINLOG SCHEDULER</small>
+        <strong>长颈鹿的课表</strong>
+      </span>
+    </div>
+
+    <div class="bar-metrics">
+      <div class="metric"><span>本周</span><b id="barWeekRange">—</b></div>
+      <div class="metric"><span>课次</span><b id="barWeekCount">—</b></div>
+      <div class="metric"><span>会员</span><b id="barMemberCount">—</b></div>
+    </div>
+
+    <div class="bar-actions">
+      <button type="button" class="btn ghost only-narrow" id="membersToggle" aria-expanded="false" aria-controls="membersPanel">会员</button>
+      <button type="button" class="btn ghost" id="memberBtn">＋ 会员</button>
+      <button type="button" class="btn primary" id="addBtn">＋ 排课</button>
+    </div>
+  </header>
+
+  <p class="status-line" id="status"></p>
+
+  <main class="workspace">
+    <section class="schedule-col" id="app" aria-label="日课表"></section>
+    <aside class="members-panel" id="membersPanel" aria-label="会员管理">
+      <div class="panel-head">
+        <h2>会员</h2>
+        <button type="button" class="panel-close" id="membersClose" aria-label="收起到课表">×</button>
+      </div>
+      <input id="memberListSearch" class="panel-search" placeholder="搜索姓名 / 英文名 / 小名" autocomplete="off">
+      <div id="memberList" class="panel-list"></div>
+      <div id="memberPagination" class="member-pagination"></div>
+    </aside>
+  </main>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+
+<dialog id="courseDialog" class="modal">
+  <form id="courseForm" class="modal-card">
+    <header class="modal-head">
+      <h2 id="courseTitle">安排课程</h2>
+      <button type="button" class="modal-x" data-close="courseDialog" aria-label="关闭">×</button>
+    </header>
+    <div class="modal-body">
+      <input type="hidden" id="courseId">
+
+      <section class="field-group">
+        <h3>约课类型</h3>
+        <label class="field"><span>类型</span>
+          <select id="appointmentType"><option value="regular">常规约课</option><option value="trial">首次体验</option></select>
+        </label>
+      </section>
+
+      <section class="field-group" id="regularStudentFields">
+        <h3>会员</h3>
+        <label class="field"><span>筛选</span><input id="studentSearch" placeholder="输入姓名快速筛选" autocomplete="off"></label>
+        <label class="field"><span>选择会员</span><select id="studentName"></select></label>
+      </section>
+
+      <section class="field-group" id="trialStudentField">
+        <h3>体验学员</h3>
+        <div class="two">
+          <label class="field"><span>姓名</span><input id="trialName" placeholder="无需先创建会员"></label>
+          <label class="field"><span>年龄</span><input id="trialAge" type="number" min="0" max="120" placeholder="如：10"></label>
+        </div>
+        <label class="field"><span>会员需求</span><textarea id="trialMemberNeed" rows="2" placeholder="孩子本人想练什么、喜欢什么"></textarea></label>
+        <label class="field"><span>家长需求</span><textarea id="trialParentNeed" rows="2" placeholder="减脂 / 增高 / 体态 / 体能 / 专项"></textarea></label>
+        <label class="field"><span>体验备注</span><textarea id="trialNotes" rows="2" placeholder="伤病、注意事项"></textarea></label>
+        <p class="field-hint">首次体验按单次课程处理；年龄与需求会同步到 App 体验会员资料。</p>
+      </section>
+
+      <section class="field-group" id="scheduleKindField">
+        <h3>排课方式</h3>
+        <label class="field"><span>重复规则</span>
+          <select id="kind"><option value="fixed">固定课 · 每周重复</option><option value="temporary">临时约课 · 仅此日期</option></select>
+        </label>
+      </section>
+
+      <section class="field-group" id="fixedField">
+        <h3>固定星期</h3>
+        <label class="field"><span>星期</span><select id="weekday"></select></label>
+      </section>
+
+      <section class="field-group" id="tempField">
+        <h3>约课日期</h3>
+        <label class="field"><span>日期</span><input id="courseDate" type="date"></label>
+      </section>
+
+      <section class="field-group">
+        <h3>时间</h3>
+        <div class="two">
+          <label class="field"><span>开始</span><input id="startTime" type="time" required value="16:00"></label>
+          <label class="field"><span>结束</span><input id="endTime" type="time" required value="17:00"></label>
+        </div>
+      </section>
+
+      <section class="field-group" id="regularCourseTypeField">
+        <h3>课程类型</h3>
+        <label class="field"><span>类型</span>
+          <select id="courseType">
+            <option>力量</option><option>有氧</option><option>速度</option><option>灵敏协调</option>
+            <option>爆发</option><option>增高</option><option>减脂</option><option>体态纠正</option>
+            <option>专项</option><option>综合</option><option>其它</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="field-group">
+        <h3>备注</h3>
+        <label class="field"><span>备注</span><input id="notes" placeholder="接送 / 团课 / 调课原因"></label>
+      </section>
+    </div>
+    <footer class="modal-actions">
+      <button type="button" id="deleteBtn" class="btn danger hidden">删除课程</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn ghost" id="cancelCourse">取消</button>
+      <button type="submit" id="saveCourseBtn" class="btn primary">保存</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog id="memberDialog" class="modal">
+  <form id="memberForm" class="modal-card">
+    <header class="modal-head">
+      <h2 id="memberTitle">创建会员</h2>
+      <button type="button" class="modal-x" data-close="memberDialog" aria-label="关闭">×</button>
+    </header>
+    <div class="modal-body">
+      <input type="hidden" id="memberId">
+      <section class="field-group">
+        <h3>身份</h3>
+        <label class="field"><span>会员编号</span><input id="memberCode" value="保存后自动生成6位编号" readonly></label>
+        <label class="field"><span>姓名</span><input id="memberName" placeholder="姓名与英文名/小名至少填一项"></label>
+        <label class="field"><span>英文名 / 小名</span><input id="memberAlias" placeholder="如：Eason / 乐乐"></label>
+        <div class="two">
+          <label class="field"><span>性别</span><select id="memberSex"><option value="">未填写</option><option>男</option><option>女</option></select></label>
+          <label class="field"><span>年龄</span><input id="memberAge" type="number" min="0" max="120" placeholder="输入年龄"></label>
+        </div>
+        <label class="field"><span>出生日期</span><input id="memberBirth" type="date"></label>
+      </section>
+      <section class="field-group">
+        <h3>训练与联系</h3>
+        <label class="field"><span>训练目标</span><input id="memberGoal" placeholder="减脂 / 增高 / 体态 / 专项"></label>
+        <label class="field"><span>联系方式</span><input id="memberContact"></label>
+        <label class="field"><span>备注</span><input id="memberNotes"></label>
+      </section>
+    </div>
+    <footer class="modal-actions">
+      <button type="button" id="deleteMemberBtn" class="btn danger hidden">删除会员</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn ghost" id="cancelMember">取消</button>
+      <button type="submit" class="btn primary">保存会员</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog id="contentDialog" class="modal">
+  <div class="modal-card readonly-dialog">
+    <header class="modal-head">
+      <h2 id="contentTitle">课程内容</h2>
+      <button type="button" class="modal-x" data-close="contentDialog" aria-label="关闭">×</button>
+    </header>
+    <div class="modal-body" id="contentBody"></div>
+    <footer class="modal-actions">
+      <span class="spacer"></span>
+      <button type="button" class="btn ghost" id="closeContent">关闭</button>
+    </footer>
+  </div>
+</dialog>
+
+<dialog id="confirmDialog" class="modal confirm-modal">
+  <div class="modal-card">
+    <header class="modal-head"><h2 id="confirmTitle">确认操作</h2></header>
+    <div class="modal-body"><p class="confirm-text" id="confirmText"></p></div>
+    <footer class="modal-actions">
+      <span class="spacer"></span>
+      <button type="button" class="btn ghost" id="confirmCancel">取消</button>
+      <button type="button" class="btn danger" id="confirmOk">确认</button>
+    </footer>
+  </div>
+</dialog>
+
+<div class="toast-host" id="toastHost" role="status" aria-live="polite"></div>
+
+<script src="cloud-schedule.js?v=3.3.0"></script>
+<script src="schedule.js?v=3.3.0"></script>
+</body>
+</html>

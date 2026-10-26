@@ -7,6 +7,9 @@ const MEMBER_PAGE_SIZE=10;
 let schedules=[],members=[],exceptions=[],locks=[],contents=[],selected=today();
 let memberPage=1,memberSearchQuery='',courseSaving=false,memberSaving=false;
 
+/* 时间轴刻度：09:00–21:00，每 30 分钟一格。这里只描述画布，不参与任何业务计算。 */
+const DAY_START=540, DAY_END=1260, DAY_SPAN=DAY_END-DAY_START;
+
 function today(){return dateStr(new Date())}
 function ageFromBirth(birth){
   if(!birth)return '';
@@ -51,12 +54,38 @@ function locksForDate(date){return locks.filter(x=>lockAppliesToDate(x,date)).so
 function findLockConflict(candidate,sourceLocks=locks){return (sourceLocks||[]).find(lock=>{if(!intervalsOverlap(candidate,lock))return false;if(kind(candidate)==='temporary')return lockAppliesToDate(lock,candidate.date);if(lock.repeatWeekly)return wd(lock.date)===Number(candidate.day);return lock.date>=today()&&wd(lock.date)===Number(candidate.day)})||null}
 function lockConflictMessage(lock){return `该时间段已锁定：${lock.repeatWeekly?'每周 '+WEEK.find(x=>x.v===wd(lock.date))?.s:lock.date} ${lock.startTime}–${lock.endTime}${lock.notes?` · ${lock.notes}`:''}`}
 function trainingDoseText(x={}){const value=String(x.reps||'').trim(),unit=String(x.unit||'').trim();if(!value)return '';if(!unit||value.endsWith(unit)||/[秒分米次个趟步圈]$/.test(value)||/\b(km|m)$/i.test(value))return value;return `${value}${unit}`;}
+
+/* ── 只读课程内容：层次化面板，训练/测试各自成表 ── */
 function readonlyContentHtml(detail){
-  if(!detail||(!(detail.tests||[]).length&&!(detail.training||[]).length&&!detail.parentGoal&&!detail.parentSummary&&!detail.parentFeedback))return '<div class="empty small">该课程还没有安排测试或训练。</div>';
+  if(!detail||(!(detail.tests||[]).length&&!(detail.training||[]).length&&!detail.parentGoal&&!detail.parentSummary&&!detail.parentFeedback))
+    return '<div class="empty small">该课程还没有安排测试或训练。</div>';
   const overview=[detail.parentGoal,detail.parentSummary].filter(Boolean);
-  return `<div class="readonly-content">${overview.length?`<section class="course-overview"><h3>课程概览</h3>${overview.map(x=>`<p>${esc(x)}</p>`).join('')}</section>`:''}${detail.tests?.length?`<h3>测试内容</h3><table class="content-table"><tbody>${detail.tests.map(x=>`<tr><td>${esc(x.category||'')}</td><td>${esc(x.subgroup||'')}</td><td>${esc(x.testName||'')}</td></tr>`).join('')}</tbody></table>`:''}${detail.training?.length?`<h3>训练内容</h3><table class="content-table"><tbody>${detail.training.map(x=>`<tr><td>${esc(x.category||'')}</td><td>${esc(x.name||'')}</td><td>${esc(x.sets||'')}组 × ${esc(trainingDoseText(x))}</td><td>${esc(x.load||'')}</td></tr>`).join('')}</tbody></table>`:''}${detail.parentFeedback?`<section class="course-feedback"><h3>课后小结</h3><p>${esc(detail.parentFeedback)}</p></section>`:''}</div>`
+  const training=(detail.training||[]).map(x=>`
+    <tr>
+      <td>${esc(x.category||'')}</td>
+      <td>${esc(x.name||'')}</td>
+      <td>${esc(x.sets||'')}组 × ${esc(trainingDoseText(x))}</td>
+      <td>${esc(x.load||'')}</td>
+    </tr>`).join('');
+  const tests=(detail.tests||[]).map(x=>`
+    <tr>
+      <td>${esc(x.category||'')}</td>
+      <td>${esc(x.subgroup||'')}</td>
+      <td>${esc(x.testName||'')}</td>
+    </tr>`).join('');
+  return `<div class="readonly-content">
+    ${overview.length?`<section class="course-overview"><h3>课程概览</h3>${overview.map(x=>`<p>${esc(x)}</p>`).join('')}</section>`:''}
+    ${tests?`<section><h3>测试内容</h3><table class="content-table"><tbody>${tests}</tbody></table></section>`:''}
+    ${training?`<section><h3>训练内容</h3><table class="content-table"><tbody>${training}</tbody></table></section>`:''}
+    ${detail.parentFeedback?`<section class="course-feedback"><h3>课后小结</h3><p>${esc(detail.parentFeedback)}</p></section>`:''}
+  </div>`;
 }
-function openContent(x,date){const detail=contentFor(x.id,date);$('contentTitle').textContent=`${scheduleDisplayName(x)} · ${date}`;$('contentBody').innerHTML=readonlyContentHtml(detail);$('contentDialog').showModal()}
+function openContent(x,date){
+  const detail=contentFor(x.id,date);
+  $('contentTitle').textContent=`${scheduleDisplayName(x)} · ${date}`;
+  $('contentBody').innerHTML=readonlyContentHtml(detail);
+  $('contentDialog').showModal();
+}
 
 function memberDisplayName(m){
   const name=String(m?.name||'').trim();
@@ -108,47 +137,114 @@ function weeklyClassCount(days){
   return days.reduce((sum,d)=>sum+rows(d.date).filter(x=>x.attendanceStatus!=='leave').length,0);
 }
 
+/* ══════════════ UI 基础设施：提示 / 确认 / 按钮状态 ══════════════ */
+
+function notify(message,type='',timeout=3200){
+  const text=String(message??'').trim();
+  if(!text)return;
+  if(!type){
+    if(/失败|错误|异常|无法|不可|不能/.test(text))type='error';
+    else if(/请|需要|至少|先/.test(text))type='warn';
+    else type='ok';
+  }
+  const host=$('toastHost');
+  const el=document.createElement('div');
+  el.className='toast '+type;
+  el.textContent=text;
+  host.appendChild(el);
+  let done=false;
+  const dismiss=()=>{if(done)return;done=true;el.classList.add('leaving');setTimeout(()=>el.remove(),200)};
+  const timer=setTimeout(dismiss,timeout);
+  el.addEventListener('click',()=>{clearTimeout(timer);dismiss()});
+}
+
+/* 自定义确认框：替代原生 confirm，样式与主题一致，保留二次确认语义 */
+let confirmResolve=null;
+function askConfirm(title,text,okLabel='确认'){
+  return new Promise(resolve=>{
+    $('confirmTitle').textContent=title;
+    $('confirmText').textContent=text;
+    $('confirmOk').textContent=okLabel;
+    confirmResolve=resolve;
+    $('confirmDialog').showModal();
+  });
+}
+$('confirmOk').onclick=()=>{const r=confirmResolve;confirmResolve=null;$('confirmDialog').close();r?.(true)};
+$('confirmCancel').onclick=()=>{const r=confirmResolve;confirmResolve=null;$('confirmDialog').close();r?.(false)};
+$('confirmDialog').addEventListener('close',()=>{if(confirmResolve){const r=confirmResolve;confirmResolve=null;r(false)}});
+
+/* 保存按钮四态：idle / saving / ok / error。
+   颜色直接写内联样式，避免被 .btn.primary 的主色覆盖。 */
+const BTN_STATES={
+  saving:{ bg:'#1A1F23', border:'#3A4145', color:'#929CA4' },
+  ok:    { bg:'#0C2620', border:'#32C99A', color:'#32C99A' },
+  error: { bg:'#261114', border:'#ED6673', color:'#ED6673' }
+};
+function setBtnState(btn,state,label){
+  if(!btn)return;
+  btn.dataset.state=state;
+  btn.disabled=state==='saving'||state==='ok';
+  if(label)btn.textContent=label;
+  else if(state==='idle')btn.textContent=btn.dataset.idleLabel||'保存';
+  const s=BTN_STATES[state];
+  if(s){
+    btn.style.background=s.bg;
+    btn.style.borderColor=s.border;
+    btn.style.color=s.color;
+  }else{
+    btn.style.background='';
+    btn.style.borderColor='';
+    btn.style.color='';
+  }
+}
+
+function setStatus(text,isError=false){
+  const el=$('status');
+  el.textContent=text||'';
+  el.classList.toggle('error',!!isError);
+}
+
+/* ══════════════ 渲染 ══════════════ */
+
 function render(){
   const days=week(selected);
   const weekClasses=weeklyClassCount(days);
-  $('status').textContent=`总会员 ${members.length} 位 · 本周课时 ${weekClasses} 节`;
+
+  $('barWeekRange').textContent=`${days[0].md} – ${days[6].md}`;
+  $('barWeekCount').textContent=String(weekClasses);
+  $('barMemberCount').textContent=String(members.length);
+
   $('app').innerHTML=`
     <div class="weeknav">
-      <button class="secondary" id="prev">‹ 上一周</button>
-      <div class="notice summary">${days[0].date} — ${days[6].date}</div>
-      <button class="secondary" id="now">本周</button>
-      <button class="secondary" id="next">下一周 ›</button>
+      <button type="button" class="btn ghost" id="prev">‹ 上一周</button>
+      <span class="summary">${days[0].date} — ${days[6].date}</span>
+      <button type="button" class="btn ghost" id="now">本周</button>
+      <button type="button" class="btn ghost" id="next">下一周 ›</button>
     </div>
     <div class="weekdays">
-      ${days.map(d=>`<button class="day ${d.date===selected?'active':''}" data-date="${d.date}">
-        <span>${d.s}</span><small>${d.md} · ${rows(d.date).length}节</small>
-      </button>`).join('')}
+      ${days.map(d=>{
+        const n=rows(d.date).length;
+        const isToday=d.date===today();
+        return `<button type="button" class="day ${d.date===selected?'active':''} ${isToday?'is-today':''}" data-date="${d.date}" aria-pressed="${d.date===selected}">
+          <span class="day-name">${d.s}</span>
+          <b class="day-num">${Number(d.md.split('/')[1])}</b>
+          <span class="day-count ${n?'':'is-zero'}">${n?n+' 节':'—'}</span>
+        </button>`;
+      }).join('')}
     </div>
-    <div class="schedule-legend" aria-label="课表类型说明"><span>固定课</span><span class="legend-temp">临时约课</span><span class="legend-trial">首次体验</span><span class="legend-leave">请假 / 锁定</span></div>
-    ${timeline(selected)}
-    <div class="members">
-      <div class="members-head">
-        <h2>会员</h2>
-        <input id="memberListSearch" placeholder="搜索姓名 / 英文名 / 小名">
-      </div>
-      <div id="memberList"></div>
-      <div id="memberPagination" class="member-pagination"></div>
-    </div>`;
+    <div class="schedule-legend" aria-label="课表类型说明">
+      <span>固定课</span><span class="legend-temp">临时约课</span><span class="legend-trial">首次体验</span><span class="legend-leave">请假 / 锁定</span>
+    </div>
+    ${timeline(selected)}`;
 
   $('prev').onclick=()=>{selected=shift(selected,-7);render()};
   $('next').onclick=()=>{selected=shift(selected,7);render()};
   $('now').onclick=()=>{selected=today();render()};
   document.querySelectorAll('.day').forEach(b=>b.onclick=()=>{selected=b.dataset.date;render()});
-  bindCourseCards();
-  document.querySelectorAll('.slot-add').forEach(b=>b.onclick=()=>openCourse(null,b.dataset.time));
 
-  const search=$('memberListSearch');
-  search.value=memberSearchQuery;
-  search.oninput=e=>{
-    memberSearchQuery=e.target.value.trim();
-    memberPage=1;
-    renderMemberPanel();
-  };
+  bindCourseCards();
+  $('app').querySelectorAll('.slot-add').forEach(b=>b.onclick=()=>openCourse(null,b.dataset.time));
+
   renderMemberPanel();
 }
 
@@ -156,54 +252,190 @@ function eventClass(x){
   if(x?.attendanceStatus==='leave')return 'event-leave';
   return isTrial(x)?'event-trial':(kind(x)==='temporary'?'event-temp':'event-fixed');
 }
-function eventPlacement(x){
-  const start=Math.max(540,tm(x.startTime)),end=Math.min(1260,tm(x.endTime));
-  const rowStart=Math.floor((start-540)/30)+1,rowEnd=Math.ceil((end-540)/30)+1;
-  return{rowStart,span:Math.max(1,rowEnd-rowStart)};
-}
-function timeline(date){
-  const dayRows=rows(date),dayLocks=locksForDate(date),ss=slots();
-  let html='<div class="timeline timeline-grid">';
-  ss.forEach((s,i)=>{
-    const a=tm(s),b=a+30,eventOccupied=slotRows(date,s).length>0,lockOccupied=dayLocks.some(x=>tm(x.startTime)<b&&tm(x.endTime)>a),occupied=eventOccupied||lockOccupied;
-    html+=`<div class="slot-time grid-time" style="grid-row:${i+1};grid-column:1">${s}</div><div class="slot-bg ${occupied?'occupied':''} ${lockOccupied?'locked-bg':''}" style="grid-row:${i+1};grid-column:2"></div>`;
-    if(!occupied)html+=`<button class="slot-add" data-time="${s}" style="grid-row:${i+1};grid-column:2">＋ 点击约课</button>`;
-  });
-  dayLocks.forEach(x=>{const p=eventPlacement(x);html+=`<div class="web-lock-card" style="grid-row:${p.rowStart} / span ${p.span};grid-column:2"><strong>🔒 已锁定 ${esc(x.startTime)}–${esc(x.endTime)}</strong><small>${x.repeatWeekly?'每周固定 · ':''}${esc(x.notes||'该时段不可约')}</small></div>`});
-  dayRows.forEach(x=>{const p=eventPlacement(x);html+=card(x,p.rowStart,p.span)});
-  html+='</div><div class="timeline-end"><span>21:00</span></div>';return html;
+
+/* 关键：按真实分钟数定位，不再吸附到半小时网格。
+   09:00 为 0%，21:00 为 100%，10:07–10:53 会得到 9.3% 的起点和 6.4% 的高度。 */
+function place(x){
+  const rawStart=tm(x.startTime), rawEnd=tm(x.endTime);
+  const start=Math.min(Math.max(rawStart,DAY_START),DAY_END);
+  const end=Math.min(Math.max(rawEnd,DAY_START),DAY_END);
+  const minutes=Math.max(end-start,0);
+  return {
+    top:(start-DAY_START)/DAY_SPAN*100,
+    height:minutes/DAY_SPAN*100,
+    minutes
+  };
 }
 
-function card(x,rowStart=1,span=1){
-  const leave=x.attendanceStatus==='leave',detail=contentFor(x.id,x.occurrenceDate),hasContent=!!(detail?.tests?.length||detail?.training?.length);
+function timeline(date){
+  const dayRows=rows(date),dayLocks=locksForDate(date),ss=slots();
+
+  let grid='';
+  ss.forEach((s,i)=>{
+    const a=tm(s),b=a+30;
+    const eventOccupied=slotRows(date,s).length>0;
+    const lockOccupied=dayLocks.some(x=>tm(x.startTime)<b&&tm(x.endTime)>a);
+    const occupied=eventOccupied||lockOccupied;
+    const hour=tm(s)%60===0;
+    grid+=`<div class="grid-time ${hour?'is-hour':''}" style="grid-row:${i+1};grid-column:1">${s}</div>`;
+    grid+=`<div class="slot-bg ${occupied?'occupied':''} ${lockOccupied?'locked-bg':''} ${hour?'is-hour':''}" style="grid-row:${i+1};grid-column:2"></div>`;
+    if(!occupied)grid+=`<button type="button" class="slot-add" data-time="${s}" style="grid-row:${i+1};grid-column:2;align-self:center">点击约课</button>`;
+  });
+
+  let layer='';
+  dayLocks.forEach(x=>{
+    const p=place(x);
+    layer+=`<div class="web-lock-card" style="top:${p.top}%;height:${p.height}%">
+      <strong>已锁定 ${esc(x.startTime)}–${esc(x.endTime)}</strong>
+      <small>${x.repeatWeekly?'每周固定 · ':''}${esc(x.notes||'该时段不可约')}</small>
+    </div>`;
+  });
+  dayRows.forEach(x=>{
+    const p=place(x);
+    /* 同一时段还有其他课，说明数据层存在冲突，给红色标记 */
+    const conflict=dayRows.some(y=>y.id!==x.id&&intervalsOverlap(x,y));
+    layer+=card(x,p,conflict);
+  });
+
+  layer+=nowLine(date);
+
+  return `<div class="timeline">
+    <div class="timeline-grid">${grid}</div>
+    <div class="timeline-layer">${layer}</div>
+  </div>
+  <div class="timeline-end"><span>${mt(DAY_END)}</span></div>`;
+}
+
+/* 只在今天显示当前时间线 */
+function nowLine(date){
+  if(date!==today())return '';
+  const now=new Date();
+  const minutes=now.getHours()*60+now.getMinutes();
+  if(minutes<DAY_START||minutes>DAY_END)return '';
+  const top=(minutes-DAY_START)/DAY_SPAN*100;
+  return `<div class="now-line" style="top:${top}%"><time>${mt(minutes)}</time></div>`;
+}
+
+function card(x,p,conflict=false){
+  const leave=x.attendanceStatus==='leave';
+  const detail=contentFor(x.id,x.occurrenceDate);
+  const hasContent=!!(detail?.tests?.length||detail?.training?.length);
   const label=leave?'已请假':(isTrial(x)?'首次体验':(kind(x)==='temporary'?'临时约课':'固定课'));
-  return `<div class="course merged-course ${eventClass(x)}" style="grid-row:${rowStart} / span ${span};grid-column:2" data-id="${x.id}">
-    <div class="course-main"><strong>${x.startTime}–${x.endTime} · ${esc(scheduleDisplayName(x))}</strong><small>${esc(x.type||'综合')}${x.trialAge?` · ${esc(x.trialAge)}岁`:''}${x.trialParentNeed?` · 家长：${esc(x.trialParentNeed)}`:''}${x.notes?` · ${esc(x.notes)}`:''}${hasContent?' · 已安排内容':''}</small></div>
-    <div class="course-side"><span class="tag">${label}</span><div class="course-actions">
-      <button type="button" class="course-content tiny" data-id="${x.id}" data-date="${x.occurrenceDate}">内容</button>
-      <button type="button" class="course-edit tiny" data-id="${x.id}">编辑</button>
-      <button type="button" class="course-leave tiny" data-id="${x.id}" data-date="${x.occurrenceDate}">${leave?'恢复':'请假'}</button>
-      <button type="button" class="course-cancel tiny cancel" data-id="${x.id}" data-date="${x.occurrenceDate}">取消</button>
-    </div></div>
+
+  /* 三行信息的可读性取决于卡片实际高度，不足一小时只保留时间与姓名 */
+  const compact=p.minutes<60;
+  const metaParts=[label, x.type||'综合'];
+  if(hasContent)metaParts.push('已安排内容');
+
+  return `<div class="course ${eventClass(x)} ${compact?'compact':''} ${conflict?'has-conflict':''}"
+      style="top:${p.top}%;height:${p.height}%"
+      data-id="${x.id}" data-date="${x.occurrenceDate}"
+      role="button" tabindex="0"
+      aria-label="${esc(x.startTime)} 至 ${esc(x.endTime)}，${esc(scheduleDisplayName(x))}">
+    <span class="course-time">${esc(x.startTime)}–${esc(x.endTime)}</span>
+    <span class="course-name">${esc(scheduleDisplayName(x))}</span>
+    <span class="course-meta"><i></i>${metaParts.map(esc).join(' · ')}</span>
+    <button type="button" class="course-more" data-more="${x.id}" data-date="${x.occurrenceDate}" aria-label="更多操作" aria-expanded="false" aria-haspopup="menu">⋯</button>
   </div>`;
 }
 
-function bindCourseCards(){
-  document.querySelectorAll('.course').forEach(b=>b.onclick=e=>{if(e.target.closest('.course-actions'))return;const x=schedules.find(x=>x.id===b.dataset.id);if(x)openContent({...x,occurrenceDate:selected},selected)});
-  document.querySelectorAll('.course-content').forEach(b=>b.onclick=e=>{e.stopPropagation();const x=schedules.find(s=>String(s.id)===String(b.dataset.id));if(x)openContent(x,b.dataset.date)});
-  document.querySelectorAll('.course-edit').forEach(b=>b.onclick=e=>{e.stopPropagation();const x=schedules.find(s=>String(s.id)===String(b.dataset.id));if(x)openCourse(x)});
-  document.querySelectorAll('.course-leave').forEach(b=>b.onclick=async e=>{e.stopPropagation();const id=b.dataset.id,date=b.dataset.date,ex=exceptionFor(id,date);try{if(ex?.status==='leave')await TrainLogCloud.deleteScheduleException(id,date);else await TrainLogCloud.setScheduleException(id,date,'leave');await load()}catch(err){alert('请假操作失败：'+err.message)}});
-  document.querySelectorAll('.course-cancel').forEach(b=>b.onclick=async e=>{e.stopPropagation();const id=b.dataset.id,date=b.dataset.date,x=schedules.find(s=>String(s.id)===String(id));if(!x)return;try{if(kind(x)==='fixed')await TrainLogCloud.setScheduleException(id,date,'cancelled');else await TrainLogCloud.deleteSchedule(id);await load()}catch(err){alert('取消课程失败：'+err.message)}});
+/* ── 课程卡交互：主卡看内容，更多菜单处理编辑/请假/取消 ── */
+let openMenuId=null;
+function closeMenu(){
+  const m=document.getElementById('courseMenu');
+  if(m)m.remove();
+  document.querySelectorAll('.course-more[aria-expanded="true"]').forEach(b=>b.setAttribute('aria-expanded','false'));
+  openMenuId=null;
+}
+function openMenu(btn){
+  const id=btn.dataset.more, date=btn.dataset.date;
+  if(openMenuId===id){closeMenu();return}
+  closeMenu();
+  openMenuId=id;
+  btn.setAttribute('aria-expanded','true');
+
+  const x=schedules.find(s=>String(s.id)===String(id));
+  if(!x)return;
+  const ex=exceptionFor(id,date);
+  const leave=ex?.status==='leave';
+
+  const menu=document.createElement('div');
+  menu.className='course-menu';
+  menu.id='courseMenu';
+  menu.setAttribute('role','menu');
+  menu.innerHTML=`
+    <button type="button" role="menuitem" data-act="content">查看课程内容</button>
+    <button type="button" role="menuitem" data-act="edit">编辑课程</button>
+    <button type="button" role="menuitem" data-act="leave">${leave?'恢复本节':'标记请假'}</button>
+    <hr>
+    <button type="button" role="menuitem" class="is-danger" data-act="cancel">取消本节</button>`;
+  document.body.appendChild(menu);
+
+  /* fixed 定位 + 视口内翻转，确保菜单不会压住相邻课程或被裁掉 */
+  const r=btn.getBoundingClientRect();
+  const mw=menu.offsetWidth, mh=menu.offsetHeight;
+  let left=Math.min(r.right-mw, window.innerWidth-mw-8);
+  let top=r.bottom+6;
+  if(top+mh>window.innerHeight-8)top=r.top-mh-6;
+  menu.style.left=Math.max(8,left)+'px';
+  menu.style.top=Math.max(8,top)+'px';
+
+  menu.querySelector('[data-act="content"]').onclick=()=>{closeMenu();openContent(x,date)};
+  menu.querySelector('[data-act="edit"]').onclick=()=>{closeMenu();openCourse(x)};
+  menu.querySelector('[data-act="leave"]').onclick=async()=>{
+    closeMenu();
+    try{
+      if(leave)await TrainLogCloud.deleteScheduleException(id,date);
+      else await TrainLogCloud.setScheduleException(id,date,'leave');
+      notify(leave?'已恢复本节':'已标记请假','ok');
+      await load();
+    }catch(err){notify('请假操作失败：'+err.message,'error')}
+  };
+  menu.querySelector('[data-act="cancel"]').onclick=async()=>{
+    closeMenu();
+    const ok=await askConfirm('取消本节课程',`确定取消「${scheduleDisplayName(x)}」${date} ${x.startTime}–${x.endTime} 这节课？${kind(x)==='fixed'?'固定课只取消当天这一节，后续周次不受影响。':'该临时课程会被直接删除。'}`,'确认取消');
+    if(!ok)return;
+    try{
+      if(kind(x)==='fixed')await TrainLogCloud.setScheduleException(id,date,'cancelled');
+      else await TrainLogCloud.deleteSchedule(id);
+      notify('已取消本节','ok');
+      await load();
+    }catch(err){notify('取消课程失败：'+err.message,'error')}
+  };
 }
 
+function bindCourseCards(){
+  $('app').querySelectorAll('.course').forEach(el=>{
+    const openIt=()=>{
+      const x=schedules.find(s=>String(s.id)===String(el.dataset.id));
+      if(x)openContent({...x,occurrenceDate:el.dataset.date},el.dataset.date);
+    };
+    el.onclick=e=>{if(e.target.closest('.course-more'))return;openIt()};
+    el.onkeydown=e=>{
+      if(e.key==='Enter'||e.key===' '){e.preventDefault();openIt()}
+    };
+  });
+  $('app').querySelectorAll('.course-more').forEach(btn=>{
+    btn.onclick=e=>{e.stopPropagation();openMenu(btn)};
+  });
+}
+
+document.addEventListener('click',e=>{
+  if(!e.target.closest('.course-menu')&&!e.target.closest('.course-more'))closeMenu();
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMenu()});
+window.addEventListener('resize',closeMenu);
+window.addEventListener('scroll',closeMenu,true);
+
+/* ── 会员面板 ── */
 function filteredMembers(){
   const q=memberSearchQuery.toLowerCase();
   return members.filter(m=>!q||memberSearchText(m).includes(q));
 }
 function memberList(arr){
-  return arr.length?arr.map(m=>`<button class="member-edit" data-id="${m.id}">
+  return arr.length?arr.map(m=>`<button type="button" class="member-edit" data-id="${m.id}">
     <strong>${esc(memberDisplayName(m))}</strong>
-    <small>编号 ${esc(m.memberCode||'—')} · ${esc(m.goal||'未填写目标')}${m.contact?` · ${esc(m.contact)}`:''}</small>
+    <small>${esc(m.memberCode||'—')} · ${esc(m.goal||'未填写目标')}${m.contact?` · ${esc(m.contact)}`:''}</small>
   </button>`).join(''):'<div class="empty small">没有匹配会员。</div>';
 }
 function renderMemberPanel(){
@@ -215,13 +447,23 @@ function renderMemberPanel(){
   const pageItems=arr.slice(start,start+MEMBER_PAGE_SIZE);
   $('memberList').innerHTML=memberList(pageItems);
   $('memberPagination').innerHTML=`
-    <button type="button" class="secondary member-page-btn" id="memberPrev" ${memberPage<=1?'disabled':''}>上一页</button>
-    <span>第 ${memberPage} / ${totalPages} 页 · 共 ${arr.length} 位</span>
-    <button type="button" class="secondary member-page-btn" id="memberNext" ${memberPage>=totalPages?'disabled':''}>下一页</button>`;
+    <button type="button" class="btn ghost member-page-btn" id="memberPrev" ${memberPage<=1?'disabled':''}>上一页</button>
+    <span>${memberPage} / ${totalPages} · ${arr.length} 位</span>
+    <button type="button" class="btn ghost member-page-btn" id="memberNext" ${memberPage>=totalPages?'disabled':''}>下一页</button>`;
   document.querySelectorAll('.member-edit').forEach(b=>b.onclick=()=>openMember(members.find(x=>x.id===b.dataset.id)));
   $('memberPrev').onclick=()=>{if(memberPage>1){memberPage--;renderMemberPanel()}};
   $('memberNext').onclick=()=>{if(memberPage<totalPages){memberPage++;renderMemberPanel()}};
 }
+
+/* ── 手机会员抽屉 ── */
+function setMembersOpen(open){
+  $('membersPanel').classList.toggle('is-open',open);
+  $('scrim').hidden=!open;
+  $('membersToggle').setAttribute('aria-expanded',String(open));
+}
+$('membersToggle').onclick=()=>setMembersOpen(!$('membersPanel').classList.contains('is-open'));
+$('membersClose').onclick=()=>setMembersOpen(false);
+$('scrim').onclick=()=>setMembersOpen(false);
 
 function fillMembers(q='',selectedRef=''){
   const needle=String(q||'').trim().toLowerCase();
@@ -267,6 +509,9 @@ function openCourse(x=null,preset=''){
   $('courseType').value=trial?'综合':(x?.type||'综合');
   $('notes').value=x?.notes||'';
   $('deleteBtn').classList.toggle('hidden',!x);
+  const saveBtn=$('saveCourseBtn');
+  saveBtn.dataset.idleLabel='保存';
+  setBtnState(saveBtn,'idle','保存');
   toggleFields();
   $('courseDialog').showModal();
 }
@@ -283,6 +528,9 @@ function openMember(x=null){
   $('memberContact').value=x?.contact||'';
   $('memberNotes').value=x?.notes||'';
   $('deleteMemberBtn').classList.toggle('hidden',!x);
+  const saveBtn=$('memberForm').querySelector('button[type="submit"]');
+  saveBtn.dataset.idleLabel='保存会员';
+  setBtnState(saveBtn,'idle','保存会员');
   $('memberDialog').showModal();
 }
 async function load(){
@@ -294,12 +542,15 @@ async function load(){
       TrainLogCloud.listLocks?TrainLogCloud.listLocks():Promise.resolve([]),
       TrainLogCloud.listScheduleContents?TrainLogCloud.listScheduleContents():Promise.resolve([])
     ]);
+    setStatus('');
     render();
   }catch(e){
-    $('status').textContent='同步失败：'+e.message;
+    setStatus('同步失败：'+e.message,true);
     $('app').innerHTML='<div class="empty">无法连接共享课表</div>';
   }
 }
+
+/* ══════════════ 事件绑定 ══════════════ */
 
 $('appointmentType').onchange=toggleFields;
 $('kind').onchange=toggleFields;
@@ -309,9 +560,17 @@ $('memberBtn').onclick=()=>openMember();
 $('cancelCourse').onclick=()=>$('courseDialog').close();
 $('cancelMember').onclick=()=>$('memberDialog').close();
 $('closeContent').onclick=()=>$('contentDialog').close();
+document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.close).close());
 $('weekday').innerHTML=WEEK.map(x=>`<option value="${x.v}">${x.s}</option>`).join('');
 $('memberAge').oninput=()=>{const b=birthFromAge($('memberAge').value);if(b)$('memberBirth').value=b};
 $('memberBirth').onchange=()=>{$('memberAge').value=ageFromBirth($('memberBirth').value)||''};
+
+/* 会员搜索：面板是静态 DOM，只绑定一次，避免每次重渲染丢焦点 */
+$('memberListSearch').oninput=e=>{
+  memberSearchQuery=e.target.value.trim();
+  memberPage=1;
+  renderMemberPanel();
+};
 
 $('courseForm').onsubmit=async e=>{
   e.preventDefault();
@@ -334,18 +593,18 @@ $('courseForm').onsubmit=async e=>{
     trialNotes:trial?$('trialNotes').value.trim():'',
     notes:$('notes').value.trim()
   };
-  if(!x.studentName)return alert(trial?'请输入体验学员姓名':'请选择会员');
-  if(x.endTime<=x.startTime)return alert('结束时间需要晚于开始时间');
-  if(x.kind==='temporary'&&!x.date)return alert('临时约课 / 首次体验需要日期');
+  if(!x.studentName)return notify(trial?'请输入体验学员姓名':'请选择会员','warn');
+  if(x.endTime<=x.startTime)return notify('结束时间需要晚于开始时间','warn');
+  if(x.kind==='temporary'&&!x.date)return notify('临时约课 / 首次体验需要日期','warn');
   const id=$('courseId').value;
   const localConflict=findConflict(x,id);
-  if(localConflict)return alert(conflictMessage(localConflict));
+  if(localConflict)return notify(conflictMessage(localConflict),'warn');
   const localLock=findLockConflict(x);
-  if(localLock)return alert(lockConflictMessage(localLock));
+  if(localLock)return notify(lockConflictMessage(localLock),'warn');
 
   courseSaving=true;
-  const saveBtn=$('saveCourseBtn')||$('courseForm').querySelector('button[type="submit"]');
-  if(saveBtn){saveBtn.disabled=true;saveBtn.textContent='保存中…'}
+  const saveBtn=$('saveCourseBtn');
+  setBtnState(saveBtn,'saving','保存中…');
   try{
     const [freshSchedules,freshExceptions,freshLocks]=await Promise.all([
       TrainLogCloud.listSchedules(),
@@ -359,24 +618,29 @@ $('courseForm').onsubmit=async e=>{
     if(freshLock)throw new Error(lockConflictMessage(freshLock));
     if(id)await TrainLogCloud.updateSchedule(id,x);
     else await TrainLogCloud.createSchedule(x);
-    $('courseDialog').close();
-    await load();
+    setBtnState(saveBtn,'ok','已保存');
+    notify(id?'课程已更新':'课程已创建','ok',1800);
+    setTimeout(async()=>{$('courseDialog').close();await load()},420);
   }catch(err){
-    alert('保存失败：'+err.message);
+    setBtnState(saveBtn,'error','保存失败');
+    notify('保存失败：'+err.message,'error',4200);
+    setTimeout(()=>setBtnState(saveBtn,'idle','保存'),1400);
   }finally{
     courseSaving=false;
-    if(saveBtn){saveBtn.disabled=false;saveBtn.textContent='保存'}
   }
 };
 
 $('deleteBtn').onclick=async()=>{
   const id=$('courseId').value;
-  if(!id||!confirm('确定删除这节课程？'))return;
+  if(!id)return;
+  const ok=await askConfirm('删除课程','删除后该课程会从共享课表中移除，且无法撤销。固定课的后续周次也会一起删除。','删除');
+  if(!ok)return;
   try{
     await TrainLogCloud.deleteSchedule(id);
     $('courseDialog').close();
+    notify('课程已删除','ok');
     await load();
-  }catch(err){alert('删除失败：'+err.message)}
+  }catch(err){notify('删除失败：'+err.message,'error')}
 };
 
 $('memberForm').onsubmit=async e=>{
@@ -397,28 +661,36 @@ $('memberForm').onsubmit=async e=>{
     memberCode:existingMember?.memberCode||'',
     profile:existingMember?.profile||{}
   };
-  if(!x.name&&!x.alias)return alert('姓名或英文名/小名至少填写一项');
+  if(!x.name&&!x.alias)return notify('姓名或英文名/小名至少填写一项','warn');
   memberSaving=true;
-  if(saveBtn){saveBtn.disabled=true;saveBtn.textContent='保存中…'}
+  setBtnState(saveBtn,'saving','保存中…');
   try{
     const id=currentId;
     if(id)await TrainLogCloud.updateMember(id,x);
     else await TrainLogCloud.createMember(x);
-    $('memberDialog').close();
-    await load();
-  }catch(err){alert('会员保存失败：'+err.message)}
-  finally{memberSaving=false;if(saveBtn){saveBtn.disabled=false;saveBtn.textContent='保存会员'}}
+    setBtnState(saveBtn,'ok','已保存');
+    notify(currentId?'会员已更新':'会员已创建','ok',1800);
+    setTimeout(async()=>{$('memberDialog').close();await load()},420);
+  }catch(err){
+    setBtnState(saveBtn,'error','保存失败');
+    notify('会员保存失败：'+err.message,'error',4200);
+    setTimeout(()=>setBtnState(saveBtn,'idle','保存会员'),1400);
+  }finally{
+    memberSaving=false;
+  }
 };
 
 $('deleteMemberBtn').onclick=async()=>{
   const id=$('memberId').value;
-  if(!id||!confirm('确定删除该会员？该会员对应的课表也会一起删除。'))return;
+  if(!id)return;
+  const ok=await askConfirm('删除会员','删除该会员后，其档案会一并移除，且无法撤销。','删除会员');
+  if(!ok)return;
   try{
     await TrainLogCloud.deleteMember(id);
     $('memberDialog').close();
+    notify('会员已删除','ok');
     await load();
-  }catch(err){alert('删除失败：'+err.message)}
+  }catch(err){notify('删除失败：'+err.message,'error')}
 };
 
 load();
-
