@@ -120,9 +120,15 @@
       push({
         ...s,
         kind: kind,
-        occurrenceDate: date,
-        effectiveDate: date,
-        attendanceStatus: status,
+        scheduleId: String(s.id),
+        occurrenceDate: date,      /* 原始发生日期：历史关联用 */
+        effectiveDate: date,       /* 实际排课日期：展示用 */
+        startTime: s.startTime,    /* 有效时间 */
+        endTime: s.endTime,
+        originalStartTime: s.startTime,
+        originalEndTime: s.endTime,
+        exceptionStatus: status,
+        attendanceStatus: status,  /* 兼容旧调用名 */
         movedFromDate: '',
         movedToDate: '',
         movedFromTime: '',
@@ -145,11 +151,15 @@
       push({
         ...src,
         kind: 'fixed',
-        startTime: start,
+        scheduleId: String(src.id),
+        startTime: start,                 /* 有效时间 = 目标时间 */
         endTime: end,
+        originalStartTime: src.startTime, /* 原时间，用于展示与回溯 */
+        originalEndTime: src.endTime,
         occurrenceDate: ex.date,          /* 数据仍归原始日期 */
         effectiveDate: date,
-        attendanceStatus: 'moved',
+        exceptionStatus: 'moved',
+        attendanceStatus: 'moved',        /* 兼容旧调用名 */
         movedFromDate: ex.date,
         movedToDate: date,
         movedFromTime: src.startTime,
@@ -264,16 +274,33 @@
     return allowed.indexOf(String(to || '')) >= 0;
   }
 
+  /* 对外契约：八个字段，跨客户端与 AI 工具统一用这个形状。
+     只暴露语义，不暴露内部字段名差异（attendanceStatus / attendance 之类）。 */
+  function toContract(o) {
+    if (!o) return null;
+    return {
+      scheduleId: String(o.id || o.scheduleId || ''),
+      occurrenceDate: String(o.occurrenceDate || ''),
+      effectiveDate: String(o.effectiveDate || o.occurrenceDate || ''),
+      startTime: String(o.startTime || ''),
+      endTime: String(o.endTime || ''),
+      originalStartTime: String(o.originalStartTime || o.startTime || ''),
+      originalEndTime: String(o.originalEndTime || o.endTime || ''),
+      exceptionStatus: String(o.exceptionStatus || o.attendanceStatus || '')
+    };
+  }
+
   function describe(occurrence) {
     if (!occurrence) return '';
-    if (occurrence.attendanceStatus === 'moved') {
+    const st = occurrence.exceptionStatus || occurrence.attendanceStatus;
+    if (st === 'moved') {
       if (occurrence.movedFromDate === occurrence.effectiveDate) {
         return '时间已调整（原 ' + occurrence.movedFromTime + '）';
       }
       return '由 ' + occurrence.movedFromDate + ' 改期';
     }
-    if (occurrence.attendanceStatus === 'leave') return '已请假';
-    if (occurrence.attendanceStatus === 'cancelled') return '已取消';
+    if (st === 'leave') return '已请假';
+    if (st === 'cancelled') return '已取消';
     return '';
   }
 
@@ -291,6 +318,7 @@
     countBetween: countBetween,
     canTransition: canTransition,
     describe: describe,
+    toContract: toContract,
     TRANSITIONS: TRANSITIONS
   };
 })(typeof window !== 'undefined' ? window : globalThis);
