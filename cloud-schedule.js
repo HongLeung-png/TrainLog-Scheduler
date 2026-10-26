@@ -35,6 +35,10 @@
       return (rows||[]).map(mapException);
     }catch(err){
       if(movedColumnsAvailable===true)throw err;
+      /* 只有"列不存在"才回退。网络抖动也回退的话，会把这个会话永久标记成
+         "没有 moved"，改期课从此静默消失 —— 看起来像数据丢了。 */
+      const msg=String(err&&err.message||err);
+      if(!/does not exist|42703/i.test(msg))throw err;
       movedColumnsAvailable=false;
       const rows=await rest(`trainlog_schedule_exceptions?select=${EXCEPTION_BASE}&order=occurrence_date.asc`);
       return (rows||[]).map(mapException);
