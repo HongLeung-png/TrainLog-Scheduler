@@ -2,8 +2,8 @@
  "sheet": "DQmxjYUljQlJ4Skpy",
  "tab": "上课课表",
  "source": "tencent-docs",
- "generatedAt": "2026-10-27T19:18:56.850Z",
- "count": 23,
+ "generatedAt": "2026-10-27T21:24:04.826Z",
+ "count": 24,
  "cells": [
   {
    "day": 7,
@@ -101,6 +101,13 @@
    "start": "17:00",
    "end": "18:00",
    "name": "棉棉",
+   "type": "私教"
+  },
+  {
+   "day": 5,
+   "start": "17:00",
+   "end": "18:00",
+   "name": "蒋元翔",
    "type": "私教"
   },
   {
