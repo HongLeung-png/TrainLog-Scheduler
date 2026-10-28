@@ -2,8 +2,8 @@
  "sheet": "DQmxjYUljQlJ4Skpy",
  "tab": "上课课表",
  "source": "tencent-docs",
- "generatedAt": "2026-10-27T21:57:15.316Z",
- "count": 24,
+ "generatedAt": "2026-10-28T06:22:53.623Z",
+ "count": 22,
  "cells": [
   {
    "day": 7,
@@ -104,13 +104,6 @@
    "type": "私教"
   },
   {
-   "day": 5,
-   "start": "17:00",
-   "end": "18:00",
-   "name": "蒋元翔",
-   "type": "私教"
-  },
-  {
    "day": 6,
    "start": "17:00",
    "end": "18:00",
@@ -122,13 +115,6 @@
    "start": "17:00",
    "end": "18:00",
    "name": "高悦哲",
-   "type": "私教"
-  },
-  {
-   "day": 2,
-   "start": "18:00",
-   "end": "19:00",
-   "name": "陈鹏宇",
    "type": "私教"
   },
   {
