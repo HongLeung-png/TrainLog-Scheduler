@@ -164,6 +164,13 @@ input,select,textarea{ font:inherit; }
   color:var(--accent);
 }
 .brand-mark svg{ width:20px; height:20px; display:block; }
+/* 品牌标记换成 App 同款长颈鹿：透明底，放在原来的圆角方框里 */
+.brand-img{
+  width:28px; height:28px; display:block; object-fit:contain;
+  /* 原图是细线稿，小尺寸下靠一点点辉光提清晰度 */
+  filter:drop-shadow(0 0 5px rgba(37,217,232,.45));
+}
+@media (max-width:720px){ .brand-mark{ width:32px; height:32px; flex-basis:32px; } .brand-img{ width:25px; height:25px; } }
 .brand-text{ display:flex; flex-direction:column; gap:1px; min-width:0; }
 .brand-text small{
   font-size:9.5px;

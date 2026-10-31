@@ -20,6 +20,10 @@
 - 网页新约的课一律写成 `course_kind='temporary'`、`course_type='首次体验'`、`member_id=null`，与 App 的体验课语义一致。
 - `occurrence-model.js` 与 Android 端同步到同一版本（新增固定课生效区间过滤、临时课与固定课重复去重）。
 
+## 品牌标记
+
+- 顶栏左上角换回 App 同款长颈鹿（`brand-mark.png`，透明底），去掉原来那条抽象折线；同一个文件设为站点 favicon。
+
 ## 验证
 
 - 无头浏览器断言 15 项全过：DOM 中已无会员相关节点、约课弹窗只剩体验课字段、会员课菜单只剩只读入口、无运行时异常。
