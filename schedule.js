@@ -4,25 +4,13 @@ const WEEK=[
 ];
 const $=id=>document.getElementById(id);
 const MEMBER_PAGE_SIZE=10;
-let schedules=[],members=[],exceptions=[],locks=[],contents=[],selected=today();
-let memberPage=1,memberSearchQuery='',courseSaving=false,memberSaving=false;
+let schedules=[],exceptions=[],locks=[],contents=[],selected=today();
+let courseSaving=false;
 
 /* 时间轴刻度：09:00–21:00，每 30 分钟一格。这里只描述画布，不参与任何业务计算。 */
 const DAY_START=540, DAY_END=1260, DAY_SPAN=DAY_END-DAY_START;
 
 function today(){return dateStr(new Date())}
-function ageFromBirth(birth){
-  if(!birth)return '';
-  const b=parse(birth),n=new Date();
-  let a=n.getFullYear()-b.getFullYear();
-  const m=n.getMonth()-b.getMonth();
-  if(m<0||(m===0&&n.getDate()<b.getDate()))a--;
-  return a;
-}
-function birthFromAge(age){
-  const a=Number(age);
-  return Number.isFinite(a)&&a>=0&&a<=120?`${new Date().getFullYear()-Math.floor(a)}-01-01`:'';
-}
 function dateStr(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function parse(s){const[a,b,c]=String(s).split('-').map(Number);return new Date(a,b-1,c,12)}
 function wd(s){const n=parse(s).getDay();return n||7}
@@ -93,18 +81,10 @@ function openContent(x,date){
   $('contentDialog').showModal();
 }
 
-function memberDisplayName(m){
-  const name=String(m?.name||'').trim();
-  const alias=String(m?.alias||'').trim();
-  return name&&alias?`${name}-${alias}`:(name||alias||'未命名会员');
-}
-function memberSearchText(m){
-  return `${m?.memberCode||''} ${m?.name||''} ${m?.alias||''} ${m?.goal||''} ${m?.contact||''}`.toLowerCase();
-}
+/* 网页不加载会员名册：名字直接用课表里的 student_name。
+   少读一张表就少一份泄露面，课程卡显示效果与之前一致。 */
 function scheduleDisplayName(x){
-  const raw=String(x?.studentName||'').trim();
-  const found=members.find(m=>x?.memberId===m.id||(()=>{const base=String(m.name||'').trim();const alias=String(m.alias||'').trim();return raw===base||raw===alias||raw===memberDisplayName(m)})());
-  return found?memberDisplayName(found):raw;
+  return String(x?.studentName||'').trim();
 }
 
 /* 冲突判定统一走 occurrence-model：
@@ -296,7 +276,6 @@ function render(){
 
   $('barWeekRange').textContent=`${days[0].md} – ${days[6].md}`;
   $('barWeekCount').textContent=String(weekClasses);
-  $('barMemberCount').textContent=String(members.length);
 
   $('app').innerHTML=`
     <div class="weeknav">
@@ -328,8 +307,6 @@ function render(){
 
   bindCourseCards();
   $('app').querySelectorAll('.slot-add').forEach(b=>b.onclick=()=>openCourse(null,b.dataset.time));
-
-  renderMemberPanel();
 }
 
 function eventClass(x){
@@ -459,14 +436,19 @@ function openMenu(btn){
   /* 已改期的这一节不提供请假/取消：一条 occurrence 只能有一种终态，
      直接改成 leave 会覆盖 moved 记录（旧客户端就是这样静默丢失改期的）。
      要请假先撤销改期，路径短且不丢数据。 */
-  menu.innerHTML=`
-    <button type="button" role="menuitem" data-act="content">查看课程内容</button>
-    <button type="button" role="menuitem" data-act="edit">编辑课程</button>
-    ${moved
-      ? '<button type="button" role="menuitem" data-act="undo-move">撤销改期</button>'
-      : `<button type="button" role="menuitem" data-act="leave">${leave?'恢复本节':'标记请假'}</button>
-         <hr>
-         <button type="button" role="menuitem" class="is-danger" data-act="cancel">取消本节</button>`}`;
+  /* 网页只读正式会员的课：能看内容，改课/请假/取消都回 App 做。
+     体验课是自己约的，仍然允许在网页上改或取消。 */
+  const trialCourse=isTrial(x);
+  menu.innerHTML=trialCourse
+    ? `<button type="button" role="menuitem" data-act="content">查看课程内容</button>
+       <button type="button" role="menuitem" data-act="edit">编辑体验课</button>
+       ${moved
+         ? '<button type="button" role="menuitem" data-act="undo-move">撤销改期</button>'
+         : `<button type="button" role="menuitem" data-act="leave">${leave?'恢复本节':'标记请假'}</button>
+            <hr>
+            <button type="button" role="menuitem" class="is-danger" data-act="cancel">取消本节</button>`}`
+    : `<button type="button" role="menuitem" data-act="content">查看课程内容</button>
+       <p class="menu-note">正式会员的课只能看内容；约课、改课请在 App 里操作。</p>`;
   document.body.appendChild(menu);
 
   /* fixed 定位 + 视口内翻转，确保菜单不会压住相邻课程或被裁掉 */
@@ -479,7 +461,8 @@ function openMenu(btn){
   menu.style.top=Math.max(8,top)+'px';
 
   menu.querySelector('[data-act="content"]').onclick=()=>{closeMenu();openContent(x,date)};
-  menu.querySelector('[data-act="edit"]').onclick=()=>{closeMenu();openCourse(x)};
+  const editBtn=menu.querySelector('[data-act="edit"]');
+  if(editBtn)editBtn.onclick=()=>{closeMenu();openCourse(x)};
 
   const undoBtn=menu.querySelector('[data-act="undo-move"]');
   if(undoBtn)undoBtn.onclick=async()=>{
@@ -549,120 +532,33 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMenu()});
 window.addEventListener('resize',closeMenu);
 window.addEventListener('scroll',closeMenu,true);
 
-/* ── 会员面板 ── */
-function filteredMembers(){
-  const q=memberSearchQuery.toLowerCase();
-  return members.filter(m=>!q||memberSearchText(m).includes(q));
-}
-function memberList(arr){
-  return arr.length?arr.map(m=>`<button type="button" class="member-edit" data-id="${m.id}">
-    <strong>${esc(memberDisplayName(m))}</strong>
-    <small>${esc(m.memberCode||'—')} · ${esc(m.goal||'未填写目标')}${m.contact?` · ${esc(m.contact)}`:''}</small>
-  </button>`).join(''):'<div class="empty small">没有匹配会员。</div>';
-}
-function renderMemberPanel(){
-  const arr=filteredMembers();
-  const totalPages=Math.max(1,Math.ceil(arr.length/MEMBER_PAGE_SIZE));
-  if(memberPage>totalPages)memberPage=totalPages;
-  if(memberPage<1)memberPage=1;
-  const start=(memberPage-1)*MEMBER_PAGE_SIZE;
-  const pageItems=arr.slice(start,start+MEMBER_PAGE_SIZE);
-  $('memberList').innerHTML=memberList(pageItems);
-  $('memberPagination').innerHTML=`
-    <button type="button" class="btn ghost member-page-btn" id="memberPrev" ${memberPage<=1?'disabled':''}>上一页</button>
-    <span>${memberPage} / ${totalPages} · ${arr.length} 位</span>
-    <button type="button" class="btn ghost member-page-btn" id="memberNext" ${memberPage>=totalPages?'disabled':''}>下一页</button>`;
-  document.querySelectorAll('.member-edit').forEach(b=>b.onclick=()=>openMember(members.find(x=>x.id===b.dataset.id)));
-  $('memberPrev').onclick=()=>{if(memberPage>1){memberPage--;renderMemberPanel()}};
-  $('memberNext').onclick=()=>{if(memberPage<totalPages){memberPage++;renderMemberPanel()}};
-}
-
-/* ── 手机会员抽屉 ── */
-function setMembersOpen(open){
-  $('membersPanel').classList.toggle('is-open',open);
-  $('scrim').hidden=!open;
-  $('membersToggle').setAttribute('aria-expanded',String(open));
-}
-$('membersToggle').onclick=()=>setMembersOpen(!$('membersPanel').classList.contains('is-open'));
-$('membersClose').onclick=()=>setMembersOpen(false);
-$('scrim').onclick=()=>setMembersOpen(false);
-
-function fillMembers(q='',selectedRef=''){
-  const needle=String(q||'').trim().toLowerCase();
-  const a=members.filter(m=>!needle||memberSearchText(m).includes(needle));
-  const current=String(selectedRef||'').trim();
-  const options=a.map(m=>{
-    const value=String(m.name||m.alias||'').trim();
-    const selected=m.id===current||value===current||memberDisplayName(m)===current;
-    return `<option value="${esc(value)}" data-member-id="${esc(m.id)}" ${selected?'selected':''}>${esc(m.memberCode||'——')} · ${esc(memberDisplayName(m))}</option>`;
-  }).join('');
-  const hasCurrent=a.some(m=>m.id===current||String(m.name||m.alias||'').trim()===current||memberDisplayName(m)===current);
-  $('studentName').innerHTML=(current&&!hasCurrent?`<option value="${esc(current)}" selected>${esc(current)}</option>`:'')+options||'<option value="">暂无会员</option>';
-}
-
-function toggleFields(){
-  const trial=$('appointmentType').value==='trial';
-  if(trial)$('kind').value='temporary';
-  $('scheduleKindField').style.display=trial?'none':'';
-  $('regularStudentFields').style.display=trial?'none':'';
-  $('trialStudentField').style.display=trial?'':'none';
-  $('regularCourseTypeField').style.display=trial?'none':'';
-  const temp=trial||$('kind').value==='temporary';
-  $('fixedField').style.display=temp?'none':'';
-  $('tempField').style.display=temp?'':'none';
-}
+/* 网页端只做体验课：正式会员的课一律在 App 里约，网页不提供会员选择。 */
 function openCourse(x=null,preset=''){
-  $('courseTitle').textContent=x?'编辑课程':'安排课程';
+  $('courseTitle').textContent=x?'编辑体验课':'约体验课';
   $('courseId').value=x?.id||'';
-  const trial=isTrial(x);
-  $('appointmentType').value=trial?'trial':'regular';
-  $('kind').value=trial?'temporary':kind(x||{});
-  $('studentSearch').value='';
-  fillMembers('',trial?(members[0]?.id||''):(x?.memberId||x?.studentName||members[0]?.id||''));
-  $('trialName').value=trial?x.studentName:'';
-  $('trialAge').value=trial?(x.trialAge||''):'';
-  $('trialMemberNeed').value=trial?(x.trialMemberNeed||''):'';
-  $('trialParentNeed').value=trial?(x.trialParentNeed||''):'';
-  $('trialNotes').value=trial?(x.trialNotes||''):'';
-  $('weekday').value=x?.day||wd(selected);
+  $('trialName').value=x?.studentName||'';
+  $('trialAge').value=x?.trialAge||'';
+  $('trialMemberNeed').value=x?.trialMemberNeed||'';
+  $('trialParentNeed').value=x?.trialParentNeed||'';
+  $('trialNotes').value=x?.trialNotes||'';
   $('courseDate').value=x?.date||selected;
   /* 数据库里的时间已是 HH:mm，这里再归一化一次，防止历史数据带秒 */
   $('startTime').value=normalizeTime(x?.startTime||preset||'')||'16:00';
   $('endTime').value=normalizeTime(x?.endTime)||(preset?mt(Math.min(tm(preset)+60,1260)):'17:00');
   markTimeInvalid($('startTime'),false);
   markTimeInvalid($('endTime'),false);
-  $('courseType').value=trial?'综合':(x?.type||'综合');
   $('notes').value=x?.notes||'';
   $('deleteBtn').classList.toggle('hidden',!x);
   const saveBtn=$('saveCourseBtn');
   saveBtn.dataset.idleLabel='保存';
   setBtnState(saveBtn,'idle','保存');
-  toggleFields();
   $('courseDialog').showModal();
 }
-function openMember(x=null){
-  $('memberTitle').textContent=x?'编辑会员':'创建会员';
-  $('memberId').value=x?.id||'';
-  $('memberCode').value=x?.memberCode||'保存后自动生成6位编号';
-  $('memberName').value=x?.name||'';
-  $('memberAlias').value=x?.alias||'';
-  $('memberSex').value=x?.sex||'';
-  $('memberBirth').value=x?.birth||'';
-  $('memberAge').value=ageFromBirth(x?.birth)||'';
-  $('memberGoal').value=x?.goal||'';
-  $('memberContact').value=x?.contact||'';
-  $('memberNotes').value=x?.notes||'';
-  $('deleteMemberBtn').classList.toggle('hidden',!x);
-  const saveBtn=$('memberForm').querySelector('button[type="submit"]');
-  saveBtn.dataset.idleLabel='保存会员';
-  setBtnState(saveBtn,'idle','保存会员');
-  $('memberDialog').showModal();
-}
+
 async function load(){
   try{
-    [schedules,members,exceptions,locks,contents]=await Promise.all([
+    [schedules,exceptions,locks,contents]=await Promise.all([
       TrainLogCloud.listSchedules(),
-      TrainLogCloud.listMembers(),
       TrainLogCloud.listExceptions?TrainLogCloud.listExceptions():Promise.resolve([]),
       TrainLogCloud.listLocks?TrainLogCloud.listLocks():Promise.resolve([]),
       TrainLogCloud.listScheduleContents?TrainLogCloud.listScheduleContents():Promise.resolve([])
@@ -677,18 +573,10 @@ async function load(){
 
 /* ══════════════ 事件绑定 ══════════════ */
 
-$('appointmentType').onchange=toggleFields;
-$('kind').onchange=toggleFields;
-$('studentSearch').oninput=e=>fillMembers(e.target.value,$('studentName').value);
 $('addBtn').onclick=()=>openCourse();
-$('memberBtn').onclick=()=>openMember();
 $('cancelCourse').onclick=()=>$('courseDialog').close();
-$('cancelMember').onclick=()=>$('memberDialog').close();
 $('closeContent').onclick=()=>$('contentDialog').close();
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.close).close());
-$('weekday').innerHTML=WEEK.map(x=>`<option value="${x.v}">${x.s}</option>`).join('');
-$('memberAge').oninput=()=>{const b=birthFromAge($('memberAge').value);if(b)$('memberBirth').value=b};
-$('memberBirth').onchange=()=>{$('memberAge').value=ageFromBirth($('memberBirth').value)||''};
 
 /* 时间字段：键盘输入 + 触屏选择器，两边写回同一个 HH:mm */
 ['startTime','endTime'].forEach(id=>setupTimeField($(id)));
@@ -696,21 +584,10 @@ document.querySelectorAll('.time-pick').forEach(btn=>{
   btn.onclick=()=>openTimePicker($(btn.dataset.timeFor));
 });
 
-/* 会员搜索：面板是静态 DOM，只绑定一次，避免每次重渲染丢焦点 */
-$('memberListSearch').oninput=e=>{
-  memberSearchQuery=e.target.value.trim();
-  memberPage=1;
-  renderMemberPanel();
-};
-
 $('courseForm').onsubmit=async e=>{
   e.preventDefault();
   if(courseSaving)return;
-  const trial=$('appointmentType').value==='trial';
-  const selectedOption=$('studentName')?.selectedOptions?.[0];
-  const memberId=trial?'':String(selectedOption?.dataset?.memberId||'');
-  const selectedMember=memberId?members.find(m=>m.id===memberId):null;
-  const studentName=trial?$('trialName').value.trim():(selectedMember?memberDisplayName(selectedMember):$('studentName').value);
+  const studentName=$('trialName').value.trim();
   /* 保存时用户可能还没失焦，先归一化再校验，避免把 1600 这种半成品提交上去 */
   const startNorm=normalizeTime($('startTime').value);
   const endNorm=normalizeTime($('endTime').value);
@@ -725,23 +602,32 @@ $('courseForm').onsubmit=async e=>{
   $('startTime').value=startNorm;
   $('endTime').value=endNorm;
 
-  const k=trial?'temporary':$('kind').value;
+  /* 网页端固定写成「首次体验 / 临时课 / 不绑会员」：
+     入口只有这一种，也就不存在"给会员约课"的路径。 */
   const x={
-    memberId,studentName,kind:k,
-    day:k==='fixed'?Number($('weekday').value):null,
-    date:k==='temporary'?$('courseDate').value:'',
-    startTime:$('startTime').value,endTime:$('endTime').value,
-    type:trial?'首次体验':$('courseType').value,
-    trialAge:trial?$('trialAge').value:'',
-    trialMemberNeed:trial?$('trialMemberNeed').value.trim():'',
-    trialParentNeed:trial?$('trialParentNeed').value.trim():'',
-    trialNotes:trial?$('trialNotes').value.trim():'',
+    memberId:'',
+    studentName,
+    kind:'temporary',
+    day:null,
+    date:$('courseDate').value,
+    startTime:startNorm,
+    endTime:endNorm,
+    type:'首次体验',
+    trialAge:$('trialAge').value,
+    trialMemberNeed:$('trialMemberNeed').value.trim(),
+    trialParentNeed:$('trialParentNeed').value.trim(),
+    trialNotes:$('trialNotes').value.trim(),
     notes:$('notes').value.trim()
   };
-  if(!x.studentName)return notify(trial?'请输入体验学员姓名':'请选择会员','warn');
+  if(!studentName)return notify('请输入体验学员姓名','warn');
   if(x.endTime<=x.startTime)return notify('结束时间需要晚于开始时间','warn');
-  if(x.kind==='temporary'&&!x.date)return notify('临时约课 / 首次体验需要日期','warn');
+  if(!x.date)return notify('体验课需要选择日期','warn');
+
   const id=$('courseId').value;
+  /* 编辑时只允许改体验课；正式会员的课在网页上是只读的 */
+  const editing=schedules.find(y=>String(y.id)===String(id));
+  if(editing&&!isTrial(editing))return notify('正式会员的课只能在 App 里改','warn');
+
   const localConflict=findConflict(x,id);
   if(localConflict)return notify(conflictMessage(localConflict),'warn');
   const localLock=findLockConflict(x);
@@ -764,7 +650,7 @@ $('courseForm').onsubmit=async e=>{
     if(id)await TrainLogCloud.updateSchedule(id,x);
     else await TrainLogCloud.createSchedule(x);
     setBtnState(saveBtn,'ok','已保存');
-    notify(id?'课程已更新':'课程已创建','ok',1800);
+    notify(id?'体验课已更新':'体验课已创建','ok',1800);
     setTimeout(async()=>{$('courseDialog').close();await load()},420);
   }catch(err){
     setBtnState(saveBtn,'error','保存失败');
@@ -784,62 +670,6 @@ $('deleteBtn').onclick=async()=>{
     await TrainLogCloud.deleteSchedule(id);
     $('courseDialog').close();
     notify('课程已删除','ok');
-    await load();
-  }catch(err){notify('删除失败：'+err.message,'error')}
-};
-
-$('memberForm').onsubmit=async e=>{
-  e.preventDefault();
-  if(memberSaving)return;
-  const saveBtn=$('memberForm').querySelector('button[type="submit"]');
-  const currentId=$('memberId').value;
-  const existingMember=currentId?members.find(m=>String(m.id)===String(currentId)):null;
-  const x={
-    syncKey:existingMember?.syncKey||`web:${window.crypto?.randomUUID?.()||Date.now()+'_'+Math.random().toString(36).slice(2)}`,
-    name:$('memberName').value.trim(),
-    alias:$('memberAlias').value.trim(),
-    sex:$('memberSex').value,
-    birth:$('memberBirth').value,
-    goal:$('memberGoal').value.trim(),
-    contact:$('memberContact').value.trim(),
-    notes:$('memberNotes').value.trim(),
-    memberCode:existingMember?.memberCode||'',
-    profile:existingMember?.profile||{}
-  };
-  if(!x.name&&!x.alias)return notify('姓名或英文名/小名至少填写一项','warn');
-  memberSaving=true;
-  setBtnState(saveBtn,'saving','保存中…');
-  try{
-    const id=currentId;
-    if(id)await TrainLogCloud.updateMember(id,x);
-    else{
-      const created=await TrainLogCloud.createMember(x);
-      /* 编号由数据库默认值生成。若默认值被移除，不能让用户以为建档成功却拿到空编号 */
-      if(created&&typeof created==='object'&&!created.memberCode){
-        notify('会员已创建，但数据库未返回会员编号。请刷新后检查该记录的 member_code。','warn',6000);
-      }
-    }
-    setBtnState(saveBtn,'ok','已保存');
-    notify(currentId?'会员已更新':'会员已创建','ok',1800);
-    setTimeout(async()=>{$('memberDialog').close();await load()},420);
-  }catch(err){
-    setBtnState(saveBtn,'error','保存失败');
-    notify('会员保存失败：'+err.message,'error',4200);
-    setTimeout(()=>setBtnState(saveBtn,'idle','保存会员'),1400);
-  }finally{
-    memberSaving=false;
-  }
-};
-
-$('deleteMemberBtn').onclick=async()=>{
-  const id=$('memberId').value;
-  if(!id)return;
-  const ok=await askConfirm('删除会员','删除该会员后，其档案会一并移除，且无法撤销。','删除会员');
-  if(!ok)return;
-  try{
-    await TrainLogCloud.deleteMember(id);
-    $('memberDialog').close();
-    notify('会员已删除','ok');
     await load();
   }catch(err){notify('删除失败：'+err.message,'error')}
 };

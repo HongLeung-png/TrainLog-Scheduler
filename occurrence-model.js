@@ -77,6 +77,13 @@
     return String(scheduleId) + '|' + String(occurrenceDate);
   }
 
+  /* 同一个人怎么认：会员 id 优先，其次本地学员 id，最后退回姓名 */
+  function whoKey(s) {
+    if (s && s.memberId) return 'm:' + String(s.memberId);
+    if (s && s.studentId) return 's:' + String(s.studentId);
+    return 'n:' + String((s && (s.studentName || s.name)) || '').trim().toLowerCase();
+  }
+
   /* ── 核心：推导某一天的有效发生次 ───────────────────────── */
 
   function expand(opts) {
@@ -110,6 +117,16 @@
         ? Number(s.day) === wd
         : String(s.date || '') === date;
       if (!matches) continue;
+
+      /* 固定课带生效区间：改规则时旧版只到本周日、新版从下周一开始，
+         这样历史上已经上过的周不会被后来的规则改写。
+         老数据没有这两个字段，视为一直有效。 */
+      if (kind === 'fixed') {
+        const ef = String(s.effectiveFrom || s.effective_from || '');
+        const et = String(s.effectiveTo || s.effective_to || '');
+        if (ef && date < ef) continue;
+        if (et && date > et) continue;
+      }
 
       const ex = exceptionToday.get(String(s.id));
       const status = ex ? ex.status : '';
@@ -168,7 +185,18 @@
       });
     }
 
-    return out.sort((a, b) => {
+    /* ── 同一节课被记了两次 ───────────────────────────────
+       固定课照常发生，那天又建了一条临时课（历史数据、或网页端约课没拦住），
+       两条的 id 不同，occurrenceKey 去不掉，同一天就会多出一节：
+       表现出来就是「本来 7 节，显示 8 节」。
+       同一个人、时间重叠，只保留固定课那条；临时课若换了时间（补课），仍然保留。 */
+    const fixedOnes = out.filter(o => o.kind === 'fixed');
+    const deduped = out.filter(o => {
+      if (o.kind !== 'temporary') return true;
+      return !fixedOnes.some(f => whoKey(f) === whoKey(o) && overlaps(o, f));
+    });
+
+    return deduped.sort((a, b) => {
       const d = toMinutes(a.startTime) - toMinutes(b.startTime);
       return d !== 0 ? d : String(a.id).localeCompare(String(b.id));
     });
