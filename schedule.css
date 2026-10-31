@@ -155,22 +155,23 @@ input,select,textarea{ font:inherit; }
 
 .brand{ display:flex; align-items:center; gap:10px; min-width:0; }
 .brand-mark{
-  width:36px; height:36px;
-  flex:0 0 36px;
+  /* 不再套方框：长颈鹿自己就是标记，去掉边框与底色，只留图形 */
+  width:42px; height:42px;
+  flex:0 0 42px;
   display:grid; place-items:center;
-  border-radius:var(--r-sm);
-  border:1px solid var(--line);
-  background:var(--surface);
-  color:var(--accent);
+  border:0; background:none; padding:0;
 }
 .brand-mark svg{ width:20px; height:20px; display:block; }
-/* 品牌标记换成 App 同款长颈鹿：透明底，放在原来的圆角方框里 */
+/* 品牌标记：App 同款长颈鹿，透明底、无边框 */
 .brand-img{
-  width:28px; height:28px; display:block; object-fit:contain;
+  width:42px; height:42px; display:block; object-fit:contain;
   /* 原图是细线稿，小尺寸下靠一点点辉光提清晰度 */
-  filter:drop-shadow(0 0 5px rgba(37,217,232,.45));
+  filter:drop-shadow(0 0 5px rgba(37,217,232,.4));
 }
-@media (max-width:720px){ .brand-mark{ width:32px; height:32px; flex-basis:32px; } .brand-img{ width:25px; height:25px; } }
+@media (max-width:720px){
+  .brand-mark{ width:36px; height:36px; flex-basis:36px; }
+  .brand-img{ width:36px; height:36px; }
+}
 .brand-text{ display:flex; flex-direction:column; gap:1px; min-width:0; }
 .brand-text small{
   font-size:9.5px;
